@@ -14,7 +14,7 @@ Requires Python 3.12 or later and [uv](https://docs.astral.sh/uv/).
 
 ```powershell
 uv sync --locked
-uv run python -m unittest discover -s tests -v
+uv run pytest
 ```
 
 The test suite creates temporary synthetic workspaces. It does not read real
