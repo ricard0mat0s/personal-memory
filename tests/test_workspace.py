@@ -1,4 +1,5 @@
 from pathlib import Path
+import sys
 
 import pytest
 
@@ -71,8 +72,107 @@ related_pages: []
 
     write_memory_page(tmp_path, "untitled.md", page_without_title)
 
-    with pytest.raises(MemoryValidationError, match="title"):
+    with pytest.raises(MemoryValidationError, match="requires a non-empty title"):
         MemoryWorkspace(tmp_path)
+
+
+def link_directory(link: Path, target: Path) -> None:
+    if sys.platform == "win32":
+        import _winapi
+
+        _winapi.CreateJunction(str(target), str(link))
+    else:
+        link.symlink_to(target, target_is_directory=True)
+
+
+def test_workspace_refuses_a_memory_directory_that_cannot_be_scanned(tmp_path: Path) -> None:
+    (tmp_path / "memory").write_text("Not a directory", encoding="utf-8")
+    with pytest.raises(MemoryValidationError, match="Cannot scan memory directory"):
+        MemoryWorkspace(tmp_path)
+
+
+def test_workspace_opens_with_an_internal_directory_cycle(tmp_path: Path) -> None:
+    write_memory_page(tmp_path, "page.md", PERMITTED_MEMORY_PAGE.format(
+        memory_scope="individual_project"
+    ))
+    memory = tmp_path / "memory"
+    link = memory / "loop"
+    link_directory(link, memory)
+    try:
+        MemoryWorkspace(tmp_path)
+    finally:
+        if sys.platform == "win32":
+            link.rmdir()
+        else:
+            link.unlink()
+
+
+@pytest.mark.parametrize("scope", ["[]", "{}", "null", "123"])
+def test_workspace_refuses_non_string_scopes(tmp_path: Path, scope: str) -> None:
+    write_memory_page(tmp_path, "page.md", PERMITTED_MEMORY_PAGE.format(memory_scope=scope))
+    with pytest.raises(MemoryValidationError, match="unsupported scope"):
+        MemoryWorkspace(tmp_path)
+
+
+def test_workspace_refuses_a_page_link_outside_memory(tmp_path: Path) -> None:
+    memory = tmp_path / "memory"
+    memory.mkdir()
+    outside = tmp_path / "outside.md"
+    outside.write_bytes(b"\xff")
+    try:
+        (memory / "page.md").symlink_to(outside)
+    except OSError as error:
+        if sys.platform == "win32" and error.winerror == 1314:
+            pytest.skip("Windows requires symlink privileges for this test.")
+        raise
+    with pytest.raises(MemoryValidationError, match="inside the memory root"):
+        MemoryWorkspace(tmp_path)
+
+
+def test_workspace_opens_nested_permitted_pages(tmp_path: Path) -> None:
+    nested = tmp_path / "memory" / "projects"
+    nested.mkdir(parents=True)
+    (nested / "page.md").write_text(
+        PERMITTED_MEMORY_PAGE.format(memory_scope="individual_project"), encoding="utf-8"
+    )
+    MemoryWorkspace(tmp_path)
+
+
+def test_workspace_refuses_pages_through_an_escaping_directory(tmp_path: Path) -> None:
+    memory = tmp_path / "memory"
+    memory.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "page.md").write_bytes(b"\xff")
+    link = memory / "linked"
+    link_directory(link, outside)
+    try:
+        with pytest.raises(MemoryValidationError, match="inside the memory root"):
+            MemoryWorkspace(tmp_path)
+    finally:
+        if sys.platform == "win32":
+            link.rmdir()
+        else:
+            link.unlink()
+
+
+def test_workspace_refuses_a_memory_root_outside_the_workspace(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    # Invalid UTF-8 proves rejection happens before page contents are read.
+    (outside / "page.md").write_bytes(b"\xff")
+    link = workspace / "memory"
+    link_directory(link, outside)
+    try:
+        with pytest.raises(MemoryValidationError, match="memory root.*workspace"):
+            MemoryWorkspace(workspace)
+    finally:
+        if sys.platform == "win32":
+            link.rmdir()
+        else:
+            link.unlink()
 
 
 def test_workspace_refuses_invalid_yaml_frontmatter(tmp_path: Path) -> None:

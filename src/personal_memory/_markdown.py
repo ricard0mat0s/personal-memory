@@ -52,7 +52,7 @@ def validate_memory_page(page_path: Path, memory_root: Path) -> None:
         )
 
     memory_scope = metadata.get("scope")
-    if memory_scope not in PERMITTED_MEMORY_SCOPES:
+    if not isinstance(memory_scope, str) or memory_scope not in PERMITTED_MEMORY_SCOPES:
         raise MemoryValidationError(
             f"{page_path.name} frontmatter contains an unsupported scope."
         )
