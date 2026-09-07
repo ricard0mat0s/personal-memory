@@ -1,6 +1,8 @@
 """Private Markdown validation for Memory Pages."""
 
+from dataclasses import dataclass
 from pathlib import Path
+from typing import cast
 
 import yaml
 
@@ -17,7 +19,19 @@ PERMITTED_MEMORY_SCOPES = frozenset(
 )
 
 
-def validate_memory_page(page_path: Path, memory_root: Path) -> None:
+@dataclass(frozen=True, slots=True)
+class MemoryPage:
+    """Validated Current Memory used only inside the offline core."""
+
+    page_id: str
+    title: str
+    scope: str
+    related_pages: tuple[str, ...]
+    body: str
+    markdown: str
+
+
+def validate_memory_page(page_path: Path, memory_root: Path) -> MemoryPage:
     """Reject Markdown that violates the permitted Memory Page contract."""
     page_text = page_path.read_text(encoding="utf-8")
     opening_delimiter = "---\n"
@@ -32,7 +46,7 @@ def validate_memory_page(page_path: Path, memory_root: Path) -> None:
             f"{page_path.name} must contain YAML frontmatter."
         )
 
-    frontmatter_text, _, _ = frontmatter_body.partition(closing_delimiter)
+    frontmatter_text, _, body = frontmatter_body.partition(closing_delimiter)
     try:
         metadata = yaml.safe_load(frontmatter_text)
     except yaml.YAMLError as error:
@@ -65,11 +79,21 @@ def validate_memory_page(page_path: Path, memory_root: Path) -> None:
         raise MemoryValidationError(
             f"{page_path.name} frontmatter requires a related_pages list."
         )
+    validated_related_pages = cast(list[str], related_pages)
 
     resolved_memory_root = memory_root.resolve()
-    for related_page in related_pages:
+    for related_page in validated_related_pages:
         resolved_related_page = (resolved_memory_root / related_page).resolve()
         if not resolved_related_page.is_relative_to(resolved_memory_root):
             raise MemoryValidationError(
                 f"{page_path.name} related_pages must stay inside the memory root."
             )
+
+    return MemoryPage(
+        page_id=page_path.relative_to(memory_root).as_posix(),
+        title=title.strip(),
+        scope=memory_scope,
+        related_pages=tuple(validated_related_pages),
+        body=body,
+        markdown=page_text,
+    )
