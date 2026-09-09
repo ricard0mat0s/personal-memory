@@ -23,9 +23,43 @@ private parsing, ranking, or diff logic.
 - `apply_update` is deferred until the offline contracts have passed. When
   introduced, it requires an Explicit Approval for the same diff and target
   page version; the Conflict Gate rejects a stale proposal.
-- The Retrieval Cap remains a pending product decision: the current glossary
-  models it per Retrieval Request rather than per tool call. No implementation
-  should silently treat that interpretation as approved.
+- The Retrieval Cap is owned by one `RetrievalRequest` and shared across every
+  search and read performed for that user prompt. It is not reset per call.
+
+### Milestone 2 retrieval contract
+
+`RetrievalRequest` carries a non-empty ordinary-text query, optional explicit
+Memory Scopes, and private request-level budget state. Omitted scopes mean all
+permitted scopes; supplied scopes must be a non-empty tuple containing only
+permitted values. A request binds to the first `MemoryWorkspace` that serves it.
+
+`search_memory(request)` refreshes the filesystem and returns at most three
+`SearchResult` values. A result exposes the page's POSIX-relative path as its
+stable `page_id`, plus `title`, `scope`, a relevant excerpt of at most 40 body
+words, and the names of matched fields. Numeric scores remain private. No match
+is the empty tuple.
+
+Search case-folds text, removes diacritics, treats punctuation and underscores
+as separators, and ignores repeated query terms. Unique term matches are
+weighted by field: title 8, scope 4, related pages 2, and literal Markdown body
+1. Results are ordered by descending private score and then by case-folded and
+exact `page_id`.
+
+`read_memory(request, selection)` accepts a candidate's exact `page_id` or an
+unambiguous candidate title. It refreshes the workspace and returns the entire
+current Markdown file, including frontmatter. Unknown, stale, non-candidate,
+out-of-scope, and ambiguous selections fail through `MemoryRetrievalError`.
+
+The cap counts at most three distinct pages and approximately 1,500 words per
+request. Each result excerpt counts once; a later complete read adds the rest
+of that page once. If the next complete page crosses the remaining word budget,
+that page is returned whole and the request then refuses further new reads.
+Repeated searches and reads do not replenish or double-charge the budget. Word
+counting uses every match of Python's Unicode-aware `\b[\w'-]+\b` expression in
+the returned excerpt or complete Markdown. The 1,500-word threshold is exact
+for admitting new material; only that final complete page may cross it. Private
+content hashes make repeated unchanged reads free, while changed Current Memory
+is new material and is charged again. Scope eligibility is rechecked on reads.
 
 ### Internal design
 
@@ -51,7 +85,7 @@ not a second home for memory rules.
 src/personal_memory/
   workspace.py        # MemoryWorkspace interface and orchestration
   _markdown.py        # private page parsing and validation
-  _search.py          # private deterministic ranking and result shaping
+  _retrieval.py       # request budget, deterministic ranking, result shaping
   _proposals.py       # private diff and page-version handling
   mcp.py               # future MCP adapter only
 tests/
