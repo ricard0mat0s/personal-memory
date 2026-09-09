@@ -648,7 +648,7 @@ def test_retrieval_request_cannot_be_reused_across_workspaces(tmp_path: Path) ->
         second_workspace.search_memory(request)
 
 
-def test_search_excerpt_that_crosses_budget_can_still_be_completed(
+def test_search_does_not_admit_an_excerpt_that_crosses_the_word_budget(
     tmp_path: Path,
 ) -> None:
     first_body = "topic " + " ".join(f"a{index}" for index in range(1470))
@@ -684,12 +684,11 @@ related_pages: []
 """,
     )
 
-    second_result = next(
-        result for result in workspace.search_memory(request) if result.page_id == "b.md"
-    )
-    complete_second_page = workspace.read_memory(request, second_result.page_id)
+    later_results = workspace.search_memory(request)
 
-    assert complete_second_page.rstrip().endswith("b99")
+    assert [result.page_id for result in later_results] == ["a.md"]
+    with pytest.raises(MemoryRetrievalError, match="Search Results"):
+        workspace.read_memory(request, "b.md")
 
 
 def test_read_memory_reapplies_scope_after_a_candidate_changes(

@@ -48,6 +48,7 @@ class _RetrievalState:
         if (
             self.overflow_consumed
             or self.words_used >= RETRIEVAL_WORD_LIMIT
+            or self.words_used + word_count > RETRIEVAL_WORD_LIMIT
             or (
                 page_id not in self.candidate_page_ids
                 and len(self.candidate_page_ids) >= RETRIEVAL_PAGE_LIMIT
