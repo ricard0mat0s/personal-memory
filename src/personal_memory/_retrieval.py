@@ -17,6 +17,7 @@ _FIELD_WEIGHTS = {
 _EXCERPT_WORDS = 40
 RETRIEVAL_PAGE_LIMIT = 3
 RETRIEVAL_WORD_LIMIT = 1_500
+_WORD_PATTERN = re.compile(r"\b[\w'-]+\b", flags=re.UNICODE)
 
 
 @dataclass(slots=True)
@@ -148,22 +149,88 @@ def rank_page(
     return score, matched_fields
 
 
+def _normalized_term_spans(text: str) -> tuple[tuple[int, int], ...]:
+    term_start: int | None = None
+    spans: list[tuple[int, int]] = []
+    for index, character in enumerate(text):
+        if character.isalnum():
+            if term_start is None:
+                term_start = index
+        elif term_start is not None and unicodedata.combining(character):
+            continue
+        elif term_start is not None:
+            spans.append((term_start, index))
+            term_start = None
+
+    if term_start is not None:
+        spans.append((term_start, len(text)))
+    return tuple(spans)
+
+
+def _first_matching_position(
+    text: str,
+    query_terms: frozenset[str],
+    term_spans: tuple[tuple[int, int], ...],
+) -> int:
+    for term_start, term_end in term_spans:
+        if normalized_terms(text[term_start:term_end]) & query_terms:
+            return term_start
+    return 0
+
+
+def _excerpt_start_position(
+    position: int,
+    term_spans: tuple[tuple[int, int], ...],
+) -> int:
+    return next(
+        (
+            term_end
+            for term_start, term_end in term_spans
+            if term_start < position < term_end
+        ),
+        position,
+    )
+
+
+def _excerpt_end_position(
+    position: int,
+    term_spans: tuple[tuple[int, int], ...],
+) -> int:
+    return next(
+        (
+            term_start
+            for term_start, term_end in term_spans
+            if term_start < position < term_end
+        ),
+        position,
+    )
+
+
 def excerpt_for(page: MemoryPage, query_terms: frozenset[str]) -> str:
-    words = page.body.split()
+    words = tuple(_WORD_PATTERN.finditer(page.body))
+    if not words:
+        return ""
+    term_spans = _normalized_term_spans(page.body)
+    match_position = _first_matching_position(
+        page.body, query_terms, term_spans
+    )
     match_index = next(
         (
             index
             for index, word in enumerate(words)
-            if normalized_terms(word) & query_terms
+            if word.end() > match_position
         ),
         0,
     )
     start = max(0, match_index - 10)
-    return " ".join(words[start : start + _EXCERPT_WORDS])
+    end = min(len(words), start + _EXCERPT_WORDS)
+    start_position = _excerpt_start_position(words[start].start(), term_spans)
+    end_position = _excerpt_end_position(words[end - 1].end(), term_spans)
+    return page.body[start_position:end_position].strip()
 
 
 def count_words(text: str) -> int:
-    return len(re.findall(r"\b[\w'-]+\b", text, flags=re.UNICODE))
+    return len(_WORD_PATTERN.findall(text))
 
 
 def page_version(page: MemoryPage) -> str:

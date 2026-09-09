@@ -85,13 +85,18 @@ class MemoryWorkspace:
                     "Retrieval scopes must contain permitted Memory Scopes."
                 )
 
+        query_terms = normalized_terms(request.query)
+        if not query_terms:
+            raise MemoryRetrievalError(
+                "Retrieval query must contain at least one text term."
+            )
+
         request_state = request._state
         if not request_state.bind_to(self._request_token):
             raise MemoryRetrievalError(
                 "Retrieval Request belongs to another workspace."
             )
 
-        query_terms = normalized_terms(request.query)
         ranked: list[tuple[int, MemoryPage, tuple[str, ...]]] = []
         for page in self._load_pages():
             if request.scopes is not None and page.scope not in request.scopes:

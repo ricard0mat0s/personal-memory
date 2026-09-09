@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 import sys
 
 import pytest
@@ -298,6 +299,16 @@ def test_search_memory_refuses_an_empty_query_through_the_public_contract(
         workspace.search_memory(RetrievalRequest("  "))
 
 
+def test_search_memory_refuses_a_punctuation_only_query_through_the_public_contract(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "memory").mkdir()
+    workspace = MemoryWorkspace(tmp_path)
+
+    with pytest.raises(MemoryRetrievalError, match="text term"):
+        workspace.search_memory(RetrievalRequest("!!!"))
+
+
 def test_read_memory_returns_the_complete_current_page_selected_from_search(
     tmp_path: Path,
 ) -> None:
@@ -441,6 +452,84 @@ related_pages: []
     assert result.matched_fields == ("body",)
     assert "programação creates durable understanding" in result.excerpt
     assert not result.excerpt.startswith("filler0")
+
+
+def test_search_excerpt_centers_a_late_decomposed_body_match(
+    tmp_path: Path,
+) -> None:
+    filler = " ".join(f"filler{index}" for index in range(60))
+    decomposed_programacao = "programac\u0327a\u0303o"
+    write_memory_page(
+        tmp_path,
+        "learning.md",
+        f"""\
+---
+title: Learning notes
+scope: personal_history
+related_pages: []
+---
+
+{filler} {decomposed_programacao} creates durable understanding.
+""",
+    )
+    workspace = MemoryWorkspace(tmp_path)
+
+    result = workspace.search_memory(RetrievalRequest("PROGRAMAÇÃO"))[0]
+
+    assert result.matched_fields == ("body",)
+    assert decomposed_programacao in result.excerpt
+    assert not result.excerpt.startswith("filler0")
+
+
+def test_search_excerpt_is_limited_by_the_documented_word_definition(
+    tmp_path: Path,
+) -> None:
+    body = " ".join(["alpha/beta"] * 50)
+    write_memory_page(
+        tmp_path,
+        "excerpt-contract.md",
+        f"""\
+---
+title: Excerpt contract
+scope: individual_project
+related_pages: []
+---
+
+{body}
+""",
+    )
+    workspace = MemoryWorkspace(tmp_path)
+
+    result = workspace.search_memory(RetrievalRequest("excerpt"))[0]
+
+    assert len(re.findall(r"\b[\w'-]+\b", result.excerpt)) == 40
+
+
+def test_search_excerpt_does_not_split_a_decomposed_term_at_the_word_limit(
+    tmp_path: Path,
+) -> None:
+    prefix = " ".join(f"filler{index}" for index in range(39))
+    decomposed_programacao = "programac\u0327a\u0303o"
+    body = f"{prefix} {decomposed_programacao} trailing context"
+    write_memory_page(
+        tmp_path,
+        "excerpt-contract.md",
+        f"""\
+---
+title: Excerpt contract
+scope: individual_project
+related_pages: []
+---
+
+{body}
+""",
+    )
+    workspace = MemoryWorkspace(tmp_path)
+
+    result = workspace.search_memory(RetrievalRequest("excerpt"))[0]
+
+    assert result.excerpt.rstrip().endswith("filler38")
+    assert len(re.findall(r"\b[\w'-]+\b", result.excerpt)) == 39
 
 
 def test_search_matches_scope_words_and_honors_explicit_scope_selection(
