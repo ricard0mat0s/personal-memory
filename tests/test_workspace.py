@@ -1,13 +1,16 @@
 from pathlib import Path
+from hashlib import sha256
 import re
 import sys
 
 import pytest
 
 from personal_memory import (
+    MemoryProposalError,
     MemoryRetrievalError,
     MemoryValidationError,
     MemoryWorkspace,
+    ProposedUpdate,
     RetrievalRequest,
 )
 
@@ -358,6 +361,103 @@ related_pages: []
 
     with pytest.raises(MemoryRetrievalError, match="ambiguous"):
         workspace.read_memory(request, "Shared notes")
+
+
+def test_propose_update_returns_an_exact_diff_and_version_without_writing(
+    tmp_path: Path,
+) -> None:
+    original = """\
+---
+title: Project direction
+scope: individual_project
+related_pages: []
+---
+
+Build the first version.
+"""
+    replacement = original.replace(
+        "Build the first version.", "Build a small, verified version."
+    )
+    write_memory_page(tmp_path, "direction.md", original)
+    workspace = MemoryWorkspace(tmp_path)
+
+    proposal = workspace.propose_update("direction.md", replacement)
+
+    assert proposal == ProposedUpdate(
+        page_id="direction.md",
+        version_token=sha256(original.encode("utf-8")).hexdigest(),
+        diff=(
+            "--- a/memory/direction.md\n"
+            "+++ b/memory/direction.md\n"
+            "@@ -4,4 +4,4 @@\n"
+            " related_pages: []\n"
+            " ---\n"
+            " \n"
+            "-Build the first version.\n"
+            "+Build a small, verified version.\n"
+        ),
+    )
+    assert (tmp_path / "memory" / "direction.md").read_text(encoding="utf-8") == original
+
+
+@pytest.mark.parametrize(
+    ("page_id", "markdown", "message"),
+    [
+        ("", PERMITTED_MEMORY_PAGE.format(memory_scope="individual_project"), "target"),
+        ("missing.md", PERMITTED_MEMORY_PAGE.format(memory_scope="individual_project"), "exist"),
+        ("direction.md", None, "Markdown"),  # type: ignore[list-item]
+    ],
+)
+def test_propose_update_rejects_invalid_targets_and_replacements(
+    tmp_path: Path,
+    page_id: str,
+    markdown: str,
+    message: str,
+) -> None:
+    original = PERMITTED_MEMORY_PAGE.format(memory_scope="individual_project")
+    write_memory_page(tmp_path, "direction.md", original)
+    workspace = MemoryWorkspace(tmp_path)
+
+    with pytest.raises(MemoryProposalError, match=message):
+        workspace.propose_update(page_id, markdown)
+
+    assert (tmp_path / "memory" / "direction.md").read_text(encoding="utf-8") == original
+
+
+def test_propose_update_rejects_an_invalid_or_unchanged_memory_page(
+    tmp_path: Path,
+) -> None:
+    original = PERMITTED_MEMORY_PAGE.format(memory_scope="individual_project")
+    write_memory_page(tmp_path, "direction.md", original)
+    workspace = MemoryWorkspace(tmp_path)
+
+    with pytest.raises(MemoryProposalError, match="change"):
+        workspace.propose_update("direction.md", original)
+    with pytest.raises(MemoryValidationError, match="non-empty title"):
+        workspace.propose_update(
+            "direction.md",
+            original.replace("title: Project preferences\n", ""),
+        )
+
+    assert (tmp_path / "memory" / "direction.md").read_text(encoding="utf-8") == original
+
+
+def test_propose_update_uses_the_current_page_version_at_proposal_time(
+    tmp_path: Path,
+) -> None:
+    original = PERMITTED_MEMORY_PAGE.format(memory_scope="individual_project")
+    current = original.replace("small, verifiable", "current, deliberate")
+    replacement = current.replace("current, deliberate", "small, verified")
+    write_memory_page(tmp_path, "direction.md", original)
+    workspace = MemoryWorkspace(tmp_path)
+    write_memory_page(tmp_path, "direction.md", current)
+
+    proposal = workspace.propose_update("direction.md", replacement)
+
+    assert proposal.version_token == sha256(current.encode("utf-8")).hexdigest()
+    assert "-Prefer current, deliberate milestones." in proposal.diff
+    assert "+Prefer small, verified milestones." in proposal.diff
+    assert (tmp_path / "memory" / "direction.md").read_text(encoding="utf-8") == current
 
 
 def test_repeated_searches_share_the_three_page_request_cap(tmp_path: Path) -> None:

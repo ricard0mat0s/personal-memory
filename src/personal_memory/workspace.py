@@ -3,12 +3,18 @@
 import os
 from pathlib import Path
 
-from personal_memory._errors import MemoryRetrievalError, MemoryValidationError
+from personal_memory._errors import (
+    MemoryProposalError,
+    MemoryRetrievalError,
+    MemoryValidationError,
+)
 from personal_memory._markdown import (
     PERMITTED_MEMORY_SCOPES,
     MemoryPage,
+    validate_memory_markdown,
     validate_memory_page,
 )
+from personal_memory._proposals import ProposedUpdate, propose_replacement
 from personal_memory._retrieval import (
     RETRIEVAL_PAGE_LIMIT,
     RetrievalRequest,
@@ -182,3 +188,22 @@ class MemoryWorkspace:
         ):
             raise MemoryRetrievalError("Retrieval Request word cap is exhausted.")
         return page.markdown
+
+    def propose_update(self, page_id: str, markdown: str) -> ProposedUpdate:
+        """Return a validated, exact replacement proposal without writing."""
+        if not isinstance(page_id, str) or not page_id.strip():
+            raise MemoryProposalError("Memory Page target must be non-empty.")
+        if not isinstance(markdown, str):
+            raise MemoryProposalError("Replacement Markdown must be a string.")
+
+        pages = {page.page_id: page for page in self._load_pages()}
+        current_page = pages.get(page_id)
+        if current_page is None:
+            raise MemoryProposalError("Memory Page target does not exist.")
+
+        replacement_page = validate_memory_markdown(
+            current_page.page_id, markdown, self._memory_root
+        )
+        if replacement_page.markdown == current_page.markdown:
+            raise MemoryProposalError("Replacement Markdown must change the page.")
+        return propose_replacement(current_page, replacement_page)
