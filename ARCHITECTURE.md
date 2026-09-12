@@ -4,7 +4,7 @@
 
 The first implementation is one **deep module**, `MemoryWorkspace`. Its
 **Interface** is the four user-facing memory operations: `search_memory`,
-`read_memory`, `propose_update`, and (later) `apply_update`. Callers learn
+`read_memory`, `propose_update`, and `apply_update`. Callers learn
 the memory contract once; the module hides Markdown parsing, content
 eligibility checks, lexical ranking, result shaping, diff generation,
 conflict detection, and eventual Git work.
@@ -20,9 +20,9 @@ private parsing, ranking, or diff logic.
 - `read_memory` returns Current Memory for an unambiguous Memory Page. It
   does not expose repository history as current context.
 - `propose_update` returns an exact Proposed Update and performs no write.
-- `apply_update` is deferred until the offline contracts have passed. When
-  introduced, it requires an Explicit Approval for the same diff and target
-  page version; the Conflict Gate rejects a stale proposal.
+- `apply_update` requires an Explicit Approval for the same diff, target, and
+  page version; the Conflict Gate rejects stale, mismatched, foreign, and
+  already-used proposals before writing.
 - The Retrieval Cap is owned by one `RetrievalRequest` and shared across every
   search and read performed for that user prompt. It is not reset per call.
 
@@ -73,8 +73,31 @@ It returns an immutable `ProposedUpdate` containing the target `page_id`, a
 private-content-derived version token for the exact Current Memory it reviewed,
 and a deterministic unified diff using `a/memory/<page_id>` and
 `b/memory/<page_id>` labels. Creating a proposal never writes the canonical
-file. `apply_update`, explicit approval, conflict enforcement, and Git history
-remain later, separate behavior.
+file. Milestone 3 itself did not apply changes; explicit approval, conflict
+enforcement, and application are the separate Milestone 4 behavior below. Git
+history remains deferred.
+
+### Milestone 4 guarded-application contract
+
+`ExplicitApproval.for_proposal(proposal)` records the exact public proposal
+identity: `page_id`, `version_token`, and `diff`. Constructing that value is the
+caller's explicit act after review; the offline module does not authenticate a
+person or accept a bare boolean as approval.
+
+`apply_update(proposal, approval)` accepts only a proposal issued by the same
+`MemoryWorkspace`. It reloads Current Memory, verifies the approval against all
+public proposal fields, rejects a changed page through `MemoryApplicationError`,
+and revalidates the retained replacement before writing. Successful proposals
+are single-use within that workspace, including if later changes restore the
+page's earlier content.
+
+The replacement is written to a temporary file beside its target and installed
+with an atomic filesystem replacement. Application calls for the same resolved
+memory root are serialized within the process, and the target path and Current
+Memory are rechecked immediately before replacement. Only the target Memory
+Page changes. The returned immutable `AppliedUpdate` identifies the page and
+its previous and new version tokens. Git commits, MCP transport, OAuth,
+connectors, and real personal-memory data remain outside this milestone.
 
 ### Internal design
 
