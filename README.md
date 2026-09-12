@@ -2,7 +2,7 @@
 
 Private, Git-backed durable memory for supported AI clients.
 
-Milestones 1 through 3 provide an offline `MemoryWorkspace` boundary that
+Milestones 1 through 4 provide an offline `MemoryWorkspace` boundary that
 validates synthetic Markdown pages under a supplied workspace's `memory/`
 directory.
 It rejects pages without valid YAML metadata, unsupported memory scopes, raw
@@ -11,7 +11,7 @@ memory root. Deterministic retrieval searches only validated page titles,
 scopes, related-page paths, and literal Markdown bodies.
 
 ```python
-from personal_memory import MemoryWorkspace, RetrievalRequest
+from personal_memory import ExplicitApproval, MemoryWorkspace, RetrievalRequest
 
 workspace = MemoryWorkspace("path/to/canonical-repository")
 request = RetrievalRequest(
@@ -42,8 +42,19 @@ print(proposal.version_token)
 print(proposal.diff)
 ```
 
-It cannot modify memory. Applying an approved proposal, writing Git history,
-and client integration remain out of scope for this offline milestone.
+After a person or authorized caller approves that exact diff, record and apply
+the approval through the same workspace:
+
+```python
+# Display and approve proposal.diff before constructing this value.
+approval = ExplicitApproval.for_proposal(proposal)
+result = workspace.apply_update(proposal, approval)
+```
+
+`apply_update` reloads Current Memory, rejects mismatched, stale, foreign, or
+already-used proposals, and atomically replaces only the target page. It does
+not create Git history or authenticate the human approval; those
+responsibilities remain outside the offline module.
 
 ## Development
 

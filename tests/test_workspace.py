@@ -1,11 +1,15 @@
-from pathlib import Path
+from dataclasses import replace
 from hashlib import sha256
+from pathlib import Path
 import re
 import sys
 
 import pytest
 
 from personal_memory import (
+    AppliedUpdate,
+    ExplicitApproval,
+    MemoryApplicationError,
     MemoryProposalError,
     MemoryRetrievalError,
     MemoryValidationError,
@@ -458,6 +462,202 @@ def test_propose_update_uses_the_current_page_version_at_proposal_time(
     assert "-Prefer current, deliberate milestones." in proposal.diff
     assert "+Prefer small, verified milestones." in proposal.diff
     assert (tmp_path / "memory" / "direction.md").read_text(encoding="utf-8") == current
+
+
+def test_apply_update_atomically_replaces_only_its_approved_target(
+    tmp_path: Path,
+) -> None:
+    original = PERMITTED_MEMORY_PAGE.format(memory_scope="individual_project")
+    replacement = original.replace("small, verifiable", "small, verified")
+    other_page = original.replace("Project preferences", "Other project")
+    write_memory_page(tmp_path, "direction.md", original)
+    write_memory_page(tmp_path, "other.md", other_page)
+    workspace = MemoryWorkspace(tmp_path)
+    proposal = workspace.propose_update("direction.md", replacement)
+    approval = ExplicitApproval.for_proposal(proposal)
+
+    result = workspace.apply_update(proposal, approval)
+
+    assert result == AppliedUpdate(
+        page_id="direction.md",
+        previous_version_token=sha256(original.encode("utf-8")).hexdigest(),
+        version_token=sha256(replacement.encode("utf-8")).hexdigest(),
+    )
+    assert (tmp_path / "memory" / "direction.md").read_text(
+        encoding="utf-8"
+    ) == replacement
+    assert (tmp_path / "memory" / "other.md").read_text(
+        encoding="utf-8"
+    ) == other_page
+
+
+def test_apply_update_refuses_a_used_approval_after_the_page_is_restored(
+    tmp_path: Path,
+) -> None:
+    original = PERMITTED_MEMORY_PAGE.format(memory_scope="individual_project")
+    replacement = original.replace("small, verifiable", "small, verified")
+    write_memory_page(tmp_path, "direction.md", original)
+    workspace = MemoryWorkspace(tmp_path)
+    first_proposal = workspace.propose_update("direction.md", replacement)
+    first_approval = ExplicitApproval.for_proposal(first_proposal)
+    workspace.apply_update(first_proposal, first_approval)
+    restore_proposal = workspace.propose_update("direction.md", original)
+    workspace.apply_update(
+        restore_proposal,
+        ExplicitApproval.for_proposal(restore_proposal),
+    )
+
+    with pytest.raises(MemoryApplicationError, match="already applied"):
+        workspace.apply_update(first_proposal, first_approval)
+
+    assert (tmp_path / "memory" / "direction.md").read_text(
+        encoding="utf-8"
+    ) == original
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("page_id", "other.md"),
+        ("version_token", "different-version"),
+        ("diff", "different diff"),
+    ],
+)
+def test_apply_update_refuses_approval_for_a_different_proposal_field(
+    tmp_path: Path,
+    field: str,
+    value: str,
+) -> None:
+    original = PERMITTED_MEMORY_PAGE.format(memory_scope="individual_project")
+    replacement = original.replace("small, verifiable", "small, verified")
+    write_memory_page(tmp_path, "direction.md", original)
+    workspace = MemoryWorkspace(tmp_path)
+    proposal = workspace.propose_update("direction.md", replacement)
+    approval = ExplicitApproval.for_proposal(proposal)
+    if field == "page_id":
+        approval = replace(approval, page_id=value)
+    elif field == "version_token":
+        approval = replace(approval, version_token=value)
+    else:
+        approval = replace(approval, diff=value)
+
+    with pytest.raises(MemoryApplicationError, match="does not match"):
+        workspace.apply_update(proposal, approval)
+
+    assert (tmp_path / "memory" / "direction.md").read_text(
+        encoding="utf-8"
+    ) == original
+
+
+def test_apply_update_refuses_a_stale_proposal_without_losing_current_memory(
+    tmp_path: Path,
+) -> None:
+    original = PERMITTED_MEMORY_PAGE.format(memory_scope="individual_project")
+    proposed = original.replace("small, verifiable", "small, verified")
+    current = original.replace("small, verifiable", "current, deliberate")
+    write_memory_page(tmp_path, "direction.md", original)
+    workspace = MemoryWorkspace(tmp_path)
+    proposal = workspace.propose_update("direction.md", proposed)
+    approval = ExplicitApproval.for_proposal(proposal)
+    write_memory_page(tmp_path, "direction.md", current)
+
+    with pytest.raises(MemoryApplicationError, match="Current Memory changed"):
+        workspace.apply_update(proposal, approval)
+
+    assert (tmp_path / "memory" / "direction.md").read_text(
+        encoding="utf-8"
+    ) == current
+
+
+def test_apply_update_refuses_a_boolean_instead_of_explicit_approval(
+    tmp_path: Path,
+) -> None:
+    original = PERMITTED_MEMORY_PAGE.format(memory_scope="individual_project")
+    replacement = original.replace("small, verifiable", "small, verified")
+    write_memory_page(tmp_path, "direction.md", original)
+    workspace = MemoryWorkspace(tmp_path)
+    proposal = workspace.propose_update("direction.md", replacement)
+
+    with pytest.raises(MemoryApplicationError, match="Explicit Approval"):
+        workspace.apply_update(proposal, True)  # type: ignore[arg-type]
+
+    assert (tmp_path / "memory" / "direction.md").read_text(
+        encoding="utf-8"
+    ) == original
+
+
+def test_apply_update_refuses_a_structurally_equal_foreign_proposal(
+    tmp_path: Path,
+) -> None:
+    original = PERMITTED_MEMORY_PAGE.format(memory_scope="individual_project")
+    replacement = original.replace("small, verifiable", "small, verified")
+    local_root = tmp_path / "local"
+    foreign_root = tmp_path / "foreign"
+    write_memory_page(local_root, "direction.md", original)
+    write_memory_page(foreign_root, "direction.md", original)
+    local_workspace = MemoryWorkspace(local_root)
+    foreign_workspace = MemoryWorkspace(foreign_root)
+    local_proposal = local_workspace.propose_update("direction.md", replacement)
+    foreign_proposal = foreign_workspace.propose_update("direction.md", replacement)
+    assert foreign_proposal == local_proposal
+
+    with pytest.raises(MemoryApplicationError, match="same workspace"):
+        local_workspace.apply_update(
+            foreign_proposal,
+            ExplicitApproval.for_proposal(foreign_proposal),
+        )
+
+    assert (local_root / "memory" / "direction.md").read_text(
+        encoding="utf-8"
+    ) == original
+
+
+def test_apply_update_refuses_approval_reconstructed_from_public_fields(
+    tmp_path: Path,
+) -> None:
+    original = PERMITTED_MEMORY_PAGE.format(memory_scope="individual_project")
+    replacement = original.replace("small, verifiable", "small, verified")
+    write_memory_page(tmp_path, "direction.md", original)
+    workspace = MemoryWorkspace(tmp_path)
+    proposal = workspace.propose_update("direction.md", replacement)
+    reconstructed_approval = ExplicitApproval(
+        page_id=proposal.page_id,
+        version_token=proposal.version_token,
+        diff=proposal.diff,
+    )
+
+    with pytest.raises(MemoryApplicationError, match="exact Proposed Update"):
+        workspace.apply_update(proposal, reconstructed_approval)
+
+    assert (tmp_path / "memory" / "direction.md").read_text(
+        encoding="utf-8"
+    ) == original
+
+
+def test_apply_update_refuses_an_out_of_scope_target_without_touching_it(
+    tmp_path: Path,
+) -> None:
+    original = PERMITTED_MEMORY_PAGE.format(memory_scope="individual_project")
+    write_memory_page(tmp_path, "direction.md", original)
+    outside = tmp_path / "outside.md"
+    outside.write_text("Outside Permitted Memory.\n", encoding="utf-8")
+    workspace = MemoryWorkspace(tmp_path)
+    forged_proposal = ProposedUpdate(
+        page_id="../outside.md",
+        version_token=sha256(outside.read_bytes()).hexdigest(),
+        diff="forged diff",
+    )
+
+    with pytest.raises(MemoryApplicationError, match="same workspace"):
+        workspace.apply_update(
+            forged_proposal,
+            ExplicitApproval.for_proposal(forged_proposal),
+        )
+
+    assert outside.read_text(encoding="utf-8") == "Outside Permitted Memory.\n"
+    assert (tmp_path / "memory" / "direction.md").read_text(
+        encoding="utf-8"
+    ) == original
 
 
 def test_repeated_searches_share_the_three_page_request_cap(tmp_path: Path) -> None:

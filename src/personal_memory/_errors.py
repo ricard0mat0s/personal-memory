@@ -11,3 +11,7 @@ class MemoryRetrievalError(ValueError):
 
 class MemoryProposalError(ValueError):
     """Raised when a no-write memory proposal cannot be produced safely."""
+
+
+class MemoryApplicationError(ValueError):
+    """Raised when an approved memory proposal cannot be applied safely."""

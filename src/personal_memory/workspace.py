@@ -1,9 +1,12 @@
 """Offline workspace boundary for curated personal memory."""
 
 import os
+from _thread import LockType
 from pathlib import Path
+from threading import Lock
 
 from personal_memory._errors import (
+    MemoryApplicationError,
     MemoryProposalError,
     MemoryRetrievalError,
     MemoryValidationError,
@@ -14,7 +17,14 @@ from personal_memory._markdown import (
     validate_memory_markdown,
     validate_memory_page,
 )
-from personal_memory._proposals import ProposedUpdate, propose_replacement
+from personal_memory._proposals import (
+    AppliedUpdate,
+    ExplicitApproval,
+    ProposedUpdate,
+    approval_matches,
+    propose_replacement,
+    replace_atomically,
+)
 from personal_memory._retrieval import (
     RETRIEVAL_PAGE_LIMIT,
     RetrievalRequest,
@@ -31,6 +41,15 @@ def _reject_scan_error(error: OSError) -> None:
     raise MemoryValidationError("Cannot scan memory directory.") from error
 
 
+_APPLICATION_LOCKS_GUARD = Lock()
+_APPLICATION_LOCKS: dict[Path, LockType] = {}
+
+
+def _application_lock_for(memory_root: Path) -> LockType:
+    with _APPLICATION_LOCKS_GUARD:
+        return _APPLICATION_LOCKS.setdefault(memory_root, Lock())
+
+
 class MemoryWorkspace:
     """Open a repository-backed collection of permitted Memory Pages."""
 
@@ -38,6 +57,9 @@ class MemoryWorkspace:
         self._workspace_root = Path(workspace_root).resolve()
         self._memory_root = (self._workspace_root / "memory").resolve()
         self._request_token = object()
+        self._pending_updates: dict[int, tuple[ProposedUpdate, str]] = {}
+        self._applied_updates: list[ProposedUpdate] = []
+        self._application_lock = _application_lock_for(self._memory_root)
         self._load_pages()
 
     def _load_pages(self) -> tuple[MemoryPage, ...]:
@@ -206,4 +228,85 @@ class MemoryWorkspace:
         )
         if replacement_page.markdown == current_page.markdown:
             raise MemoryProposalError("Replacement Markdown must change the page.")
-        return propose_replacement(current_page, replacement_page)
+        proposal = propose_replacement(current_page, replacement_page)
+        self._pending_updates[id(proposal)] = (
+            proposal,
+            replacement_page.markdown,
+        )
+        return proposal
+
+    def apply_update(
+        self,
+        proposal: ProposedUpdate,
+        approval: ExplicitApproval,
+    ) -> AppliedUpdate:
+        """Apply one exact, explicitly approved, current proposal atomically."""
+        if not isinstance(proposal, ProposedUpdate):
+            raise MemoryApplicationError("Update must be a Proposed Update.")
+        if not isinstance(approval, ExplicitApproval):
+            raise MemoryApplicationError("Update requires Explicit Approval.")
+        with self._application_lock:
+            return self._apply_update(proposal, approval)
+
+    def _apply_update(
+        self,
+        proposal: ProposedUpdate,
+        approval: ExplicitApproval,
+    ) -> AppliedUpdate:
+        if not approval_matches(approval, proposal):
+            raise MemoryApplicationError(
+                "Explicit Approval does not match this exact Proposed Update."
+            )
+        if any(applied is proposal for applied in self._applied_updates):
+            raise MemoryApplicationError("Explicit Approval was already applied.")
+
+        pending_update = self._pending_updates.get(id(proposal))
+        if pending_update is None or pending_update[0] is not proposal:
+            raise MemoryApplicationError(
+                "Proposed Update was not issued by the same workspace."
+            )
+
+        pages = {page.page_id: page for page in self._load_pages()}
+        current_page = pages.get(proposal.page_id)
+        if current_page is None:
+            raise MemoryApplicationError("Memory Page target does not exist.")
+        current_version = page_version(current_page)
+        if current_version != proposal.version_token:
+            raise MemoryApplicationError(
+                "Current Memory changed after this update was proposed."
+            )
+
+        replacement_markdown = pending_update[1]
+        replacement_page = validate_memory_markdown(
+            current_page.page_id,
+            replacement_markdown,
+            self._memory_root,
+        )
+        expected_proposal = propose_replacement(current_page, replacement_page)
+        if (
+            expected_proposal.page_id,
+            expected_proposal.version_token,
+            expected_proposal.diff,
+        ) != (
+            proposal.page_id,
+            proposal.version_token,
+            proposal.diff,
+        ):
+            raise MemoryApplicationError(
+                "Proposed Update does not match its replacement."
+            )
+
+        target = self._memory_root / current_page.page_id
+        replace_atomically(
+            target,
+            replacement_page.markdown,
+            current_page.markdown,
+            self._memory_root,
+        )
+        self._pending_updates.pop(id(proposal))
+        self._applied_updates.append(proposal)
+        return AppliedUpdate(
+            page_id=current_page.page_id,
+            previous_version_token=current_version,
+            version_token=page_version(replacement_page),
+        )
