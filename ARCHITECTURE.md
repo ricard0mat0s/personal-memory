@@ -61,6 +61,21 @@ for admitting new material; only that final complete page may cross it. Private
 content hashes make repeated unchanged reads free, while changed Current Memory
 is new material and is charged again. Scope eligibility is rechecked on reads.
 
+### Milestone 3 proposal contract
+
+`propose_update(page_id, markdown)` accepts an existing page's exact
+repository-relative `page_id` and a complete replacement Markdown document. It
+refreshes Current Memory, validates the replacement with the same Permitted
+Memory Page contract, and refuses unknown targets, invalid replacements, and
+no-op proposals through `MemoryProposalError` or `MemoryValidationError`.
+
+It returns an immutable `ProposedUpdate` containing the target `page_id`, a
+private-content-derived version token for the exact Current Memory it reviewed,
+and a deterministic unified diff using `a/memory/<page_id>` and
+`b/memory/<page_id>` labels. Creating a proposal never writes the canonical
+file. `apply_update`, explicit approval, conflict enforcement, and Git history
+remain later, separate behavior.
+
 ### Internal design
 
 Markdown parsing, frontmatter validation, lexical ranking, word accounting,

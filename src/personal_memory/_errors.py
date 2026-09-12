@@ -7,3 +7,7 @@ class MemoryValidationError(ValueError):
 
 class MemoryRetrievalError(ValueError):
     """Raised when a retrieval request cannot be served safely."""
+
+
+class MemoryProposalError(ValueError):
+    """Raised when a no-write memory proposal cannot be produced safely."""

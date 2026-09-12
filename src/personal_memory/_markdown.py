@@ -34,6 +34,18 @@ class MemoryPage:
 def validate_memory_page(page_path: Path, memory_root: Path) -> MemoryPage:
     """Reject Markdown that violates the permitted Memory Page contract."""
     page_text = page_path.read_text(encoding="utf-8")
+    return validate_memory_markdown(
+        page_path.relative_to(memory_root).as_posix(), page_text, memory_root
+    )
+
+
+def validate_memory_markdown(
+    page_id: str,
+    page_text: str,
+    memory_root: Path,
+) -> MemoryPage:
+    """Validate in-memory Markdown for one existing Memory Page path."""
+    page_name = Path(page_id).name
     opening_delimiter = "---\n"
     closing_delimiter = "\n---\n"
 
@@ -43,7 +55,7 @@ def validate_memory_page(page_path: Path, memory_root: Path) -> MemoryPage:
 
     if not has_opening_delimiter or not has_closing_delimiter:
         raise MemoryValidationError(
-            f"{page_path.name} must contain YAML frontmatter."
+            f"{page_name} must contain YAML frontmatter."
         )
 
     frontmatter_text, _, body = frontmatter_body.partition(closing_delimiter)
@@ -51,24 +63,24 @@ def validate_memory_page(page_path: Path, memory_root: Path) -> MemoryPage:
         metadata = yaml.safe_load(frontmatter_text)
     except yaml.YAMLError as error:
         raise MemoryValidationError(
-            f"{page_path.name} contains invalid YAML frontmatter."
+            f"{page_name} contains invalid YAML frontmatter."
         ) from error
 
     if not isinstance(metadata, dict):
         raise MemoryValidationError(
-            f"{page_path.name} frontmatter must be a YAML mapping."
+            f"{page_name} frontmatter must be a YAML mapping."
         )
 
     title = metadata.get("title")
     if not isinstance(title, str) or not title.strip():
         raise MemoryValidationError(
-            f"{page_path.name} frontmatter requires a non-empty title."
+            f"{page_name} frontmatter requires a non-empty title."
         )
 
     memory_scope = metadata.get("scope")
     if not isinstance(memory_scope, str) or memory_scope not in PERMITTED_MEMORY_SCOPES:
         raise MemoryValidationError(
-            f"{page_path.name} frontmatter contains an unsupported scope."
+            f"{page_name} frontmatter contains an unsupported scope."
         )
 
     related_pages = metadata.get("related_pages")
@@ -77,7 +89,7 @@ def validate_memory_page(page_path: Path, memory_root: Path) -> MemoryPage:
     )
     if not has_valid_related_pages:
         raise MemoryValidationError(
-            f"{page_path.name} frontmatter requires a related_pages list."
+            f"{page_name} frontmatter requires a related_pages list."
         )
     validated_related_pages = cast(list[str], related_pages)
 
@@ -86,11 +98,11 @@ def validate_memory_page(page_path: Path, memory_root: Path) -> MemoryPage:
         resolved_related_page = (resolved_memory_root / related_page).resolve()
         if not resolved_related_page.is_relative_to(resolved_memory_root):
             raise MemoryValidationError(
-                f"{page_path.name} related_pages must stay inside the memory root."
+                f"{page_name} related_pages must stay inside the memory root."
             )
 
     return MemoryPage(
-        page_id=page_path.relative_to(memory_root).as_posix(),
+        page_id=page_id,
         title=title.strip(),
         scope=memory_scope,
         related_pages=tuple(validated_related_pages),
