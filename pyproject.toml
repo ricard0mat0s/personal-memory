@@ -9,11 +9,13 @@ description = "Private, Git-backed durable memory for supported AI clients."
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "mcp>=2.0,<3.0",
     "PyYAML>=6.0,<7.0",
 ]
 
 [dependency-groups]
 dev = [
+    "mypy>=1.15,<2.0",
     "pytest>=8.3,<10.0",
 ]
 

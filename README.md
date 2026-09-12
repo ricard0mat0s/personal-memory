@@ -66,4 +66,26 @@ uv run pytest
 ```
 
 The test suite creates temporary synthetic workspaces. It does not read real
-personal memory or require GitHub, OAuth, MCP, or network access at test time.
+personal memory or require GitHub, a live OAuth provider, or network access at
+test time.
+
+### Authenticated search smoke test
+
+Milestone 5's first iteration exposes only `search_memory` through authenticated
+Streamable HTTP. To exercise the real MCP and authorization path against local
+Markdown files without opening a port, point the smoke script at a disposable
+workspace that contains a `memory/` directory:
+
+```powershell
+uv run python scripts/smoke_authenticated_search.py `
+  C:\path\to\disposable-workspace `
+  "project direction" `
+  --scope individual_project
+```
+
+The script uses a synthetic token inside one process. It reads and validates the
+real files in the supplied workspace, prints the structured Search Results and
+opaque request ID, performs no writes, and does not contact an identity provider
+or other network service. Do not point initial experiments at the canonical
+personal-memory repository; copy a few non-sensitive pages into a disposable
+workspace first.

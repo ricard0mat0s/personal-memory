@@ -99,6 +99,31 @@ Page changes. The returned immutable `AppliedUpdate` identifies the page and
 its previous and new version tokens. Git commits, MCP transport, OAuth,
 connectors, and real personal-memory data remain outside this milestone.
 
+### Milestone 5 authenticated-search iteration
+
+The first MCP adapter iteration exposes only `search_memory` over Streamable
+HTTP. The adapter accepts the SDK's `TokenVerifier` contract and resource-server
+settings; it does not implement an identity provider. HTTP middleware refuses a
+missing, rejected, incorrectly scoped, or wrong-resource bearer token before
+the adapter opens Canonical Memory. The tool also fails closed outside an
+authenticated HTTP request.
+
+An authorized call creates the existing `RetrievalRequest`, delegates search to
+`MemoryWorkspace`, and returns the existing inspectable Search Result fields
+plus an opaque `request_id`. The adapter retains that request in bounded process
+memory for the later `read_memory` iteration: at most 128 pending requests for
+15 minutes each, evicting expired and oldest state first. Retained state is tied
+to the authenticated principal and does not survive a process restart.
+Search only issues this state; expiry, eviction, and principal-bound redemption
+become observable and receive public adapter coverage in the `read_memory`
+iteration that first consumes `request_id`.
+
+The MCP adapter is a separate outer adapter, not a second home for memory rules.
+It converts wire values and known retrieval failures while deterministic search,
+scope validation, page eligibility, ranking, and the Retrieval Cap remain behind
+`MemoryWorkspace`. `read_memory`, `propose_update`, `apply_update`, and Git
+recording are deliberately not exposed by this iteration.
+
 ### Internal design
 
 Markdown parsing, frontmatter validation, lexical ranking, word accounting,
