@@ -99,30 +99,35 @@ Page changes. The returned immutable `AppliedUpdate` identifies the page and
 its previous and new version tokens. Git commits, MCP transport, OAuth,
 connectors, and real personal-memory data remain outside this milestone.
 
-### Milestone 5 authenticated-search iteration
+### Milestone 5 authenticated retrieval iterations
 
-The first MCP adapter iteration exposes only `search_memory` over Streamable
-HTTP. The adapter accepts the SDK's `TokenVerifier` contract and resource-server
-settings; it does not implement an identity provider. HTTP middleware refuses a
-missing, rejected, incorrectly scoped, or wrong-resource bearer token before
-the adapter opens Canonical Memory. The tool also fails closed outside an
-authenticated HTTP request.
+The first two MCP adapter iterations expose `search_memory` and `read_memory`
+over Streamable HTTP. The adapter accepts the SDK's `TokenVerifier` contract
+and resource-server settings; it does not implement an identity provider. HTTP
+middleware refuses a missing, rejected, incorrectly scoped, or wrong-resource
+bearer token before the adapter opens Canonical Memory. Both tools also fail
+closed outside an authenticated HTTP request.
 
 An authorized call creates the existing `RetrievalRequest`, delegates search to
 `MemoryWorkspace`, and returns the existing inspectable Search Result fields
 plus an opaque `request_id`. The adapter retains that request in bounded process
-memory for the later `read_memory` iteration: at most 128 pending requests for
-15 minutes each, evicting expired and oldest state first. Retained state is tied
-to the authenticated principal and does not survive a process restart.
-Search only issues this state; expiry, eviction, and principal-bound redemption
-become observable and receive public adapter coverage in the `read_memory`
-iteration that first consumes `request_id`.
+memory: at most 128 pending requests for 15 minutes each, evicting expired and
+oldest state first. Retained state is tied to the authenticated principal and
+does not survive a process restart.
+
+An authorized `read_memory(request_id, selection)` resolves only state owned by
+the same principal and delegates the candidate selection to `MemoryWorkspace`.
+Unknown, expired, evicted, or foreign identifiers fail with the same unavailable
+error before Canonical Memory is opened. A valid request remains usable for
+candidate reads until its existing shared page and word budget is exhausted or
+the adapter state expires or is evicted. The tool returns the complete current
+Markdown as structured output.
 
 The MCP adapter is a separate outer adapter, not a second home for memory rules.
 It converts wire values and known retrieval failures while deterministic search,
-scope validation, page eligibility, ranking, and the Retrieval Cap remain behind
-`MemoryWorkspace`. `read_memory`, `propose_update`, `apply_update`, and Git
-recording are deliberately not exposed by this iteration.
+scope validation, page eligibility, ranking, candidate selection, and the
+Retrieval Cap remain behind `MemoryWorkspace`. `propose_update`, `apply_update`,
+and Git recording are deliberately not exposed by these iterations.
 
 ### Internal design
 

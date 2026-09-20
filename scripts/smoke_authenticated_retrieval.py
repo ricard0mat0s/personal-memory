@@ -1,4 +1,4 @@
-"""Run authenticated MCP search against a local memory workspace without a network."""
+"""Run authenticated MCP retrieval against local Markdown without a network."""
 
 import argparse
 import asyncio
@@ -35,8 +35,9 @@ class SmokeTokenVerifier(TokenVerifier):
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Search real Markdown files through authenticated in-process MCP. "
-            "The workspace must contain a memory/ directory."
+            "Search real Markdown through authenticated in-process MCP and "
+            "optionally read the first result. The workspace must contain a "
+            "memory/ directory."
         )
     )
     parser.add_argument("workspace", type=Path)
@@ -47,13 +48,19 @@ def parse_args() -> argparse.Namespace:
         dest="scopes",
         help="Limit results to one Memory Scope; repeat for multiple scopes.",
     )
+    parser.add_argument(
+        "--read-first",
+        action="store_true",
+        help="Read complete current Markdown for the first Search Result.",
+    )
     return parser.parse_args()
 
 
-async def run_search(
+async def run_retrieval(
     workspace: Path,
     query: str,
     scopes: list[str] | None,
+    read_first: bool,
 ) -> None:
     server = create_mcp_server(
         workspace,
@@ -80,17 +87,46 @@ async def run_search(
             arguments: dict[str, object] = {"query": query}
             if scopes is not None:
                 arguments["scopes"] = scopes
-            result = await client.call_tool("search_memory", arguments)
+            search_result = await client.call_tool("search_memory", arguments)
+            if search_result.is_error or search_result.structured_content is None:
+                detail = (
+                    search_result.content[0]
+                    if search_result.content
+                    else "No error detail returned."
+                )
+                raise SystemExit(f"Authenticated search failed: {detail}")
 
-    if result.is_error or result.structured_content is None:
-        detail = result.content[0] if result.content else "No error detail returned."
-        raise SystemExit(f"Authenticated search failed: {detail}")
-    print(json.dumps(result.structured_content, indent=2, ensure_ascii=False))
+            output: dict[str, object] = {
+                "search": search_result.structured_content,
+            }
+            if read_first:
+                results = search_result.structured_content["results"]
+                if not results:
+                    raise SystemExit("Authenticated search returned no result to read.")
+                read_result = await client.call_tool(
+                    "read_memory",
+                    {
+                        "request_id": search_result.structured_content["request_id"],
+                        "selection": results[0]["page_id"],
+                    },
+                )
+                if read_result.is_error or read_result.structured_content is None:
+                    detail = (
+                        read_result.content[0]
+                        if read_result.content
+                        else "No error detail returned."
+                    )
+                    raise SystemExit(f"Authenticated read failed: {detail}")
+                output["read"] = read_result.structured_content
+
+    print(json.dumps(output, indent=2, ensure_ascii=False))
 
 
 def main() -> None:
     args = parse_args()
-    asyncio.run(run_search(args.workspace, args.query, args.scopes))
+    asyncio.run(
+        run_retrieval(args.workspace, args.query, args.scopes, args.read_first)
+    )
 
 
 if __name__ == "__main__":

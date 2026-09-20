@@ -1,7 +1,10 @@
 """Authenticated MCP adapter for the Personal Memory workspace."""
 
 from collections import OrderedDict
-from dataclasses import dataclass
+from collections.abc import Iterator
+from contextlib import contextmanager
+from dataclasses import dataclass, field
+from _thread import LockType
 from pathlib import Path
 from secrets import token_urlsafe
 from threading import Lock
@@ -47,11 +50,20 @@ class AuthenticatedSearchResult(BaseModel):
     results: tuple[McpSearchResult, ...]
 
 
+class AuthenticatedReadResult(BaseModel):
+    """Complete Current Memory returned through MCP."""
+
+    model_config = ConfigDict(frozen=True)
+
+    markdown: str
+
+
 @dataclass(frozen=True, slots=True)
 class _PendingRequest:
     request: RetrievalRequest
     principal: tuple[str, str | None, str | None]
     expires_at: float
+    lock: LockType = field(default_factory=Lock, repr=False, compare=False)
 
 
 class _RequestRegistry:
@@ -78,6 +90,27 @@ class _RequestRegistry:
                 expires_at=now + self._ttl_seconds,
             )
         return request_id
+
+    @contextmanager
+    def use(
+        self,
+        request_id: str,
+        access_token: AccessToken,
+    ) -> Iterator[RetrievalRequest]:
+        principal = principal_components(access_token)
+        with self._lock:
+            self._discard_expired(monotonic())
+            pending = self._requests.get(request_id)
+            if pending is None or pending.principal != principal:
+                raise MemoryRetrievalError("Retrieval Request is unavailable.")
+
+        with pending.lock:
+            with self._lock:
+                self._discard_expired(monotonic())
+                current = self._requests.get(request_id)
+                if current is not pending or current.principal != principal:
+                    raise MemoryRetrievalError("Retrieval Request is unavailable.")
+            yield pending.request
 
     def _discard_expired(self, now: float) -> None:
         expired_ids = [
@@ -158,5 +191,18 @@ def create_mcp_server(
             request_id=request_id,
             results=tuple(_mcp_result(result) for result in results),
         )
+
+    @server.tool(structured_output=True)
+    def read_memory(request_id: str, selection: str) -> AuthenticatedReadResult:
+        """Read complete Current Memory selected from an authenticated search."""
+        access_token = get_access_token()
+        if access_token is None:
+            raise ToolError("Authentication is required.")
+        try:
+            with requests.use(request_id, access_token) as request:
+                markdown = workspace.get().read_memory(request, selection)
+        except MemoryRetrievalError as error:
+            raise ToolError(str(error)) from error
+        return AuthenticatedReadResult(markdown=markdown)
 
     return server
