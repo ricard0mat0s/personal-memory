@@ -99,6 +99,8 @@ def create_test_server(
     *,
     max_pending_requests: int = 128,
     request_ttl_seconds: int = 15 * 60,
+    max_pending_proposals: int = 128,
+    proposal_ttl_seconds: int = 15 * 60,
 ) -> MCPServer:
     return create_mcp_server(
         workspace_root,
@@ -108,6 +110,8 @@ def create_test_server(
         required_scopes=("memory:read",),
         max_pending_requests=max_pending_requests,
         request_ttl_seconds=request_ttl_seconds,
+        max_pending_proposals=max_pending_proposals,
+        proposal_ttl_seconds=proposal_ttl_seconds,
     )
 
 

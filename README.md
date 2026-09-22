@@ -91,3 +91,17 @@ Markdown for the first result through that same bounded request. It performs no
 writes and does not contact an identity provider or other network service. Do
 not point initial experiments at the canonical personal-memory repository; copy
 a few non-sensitive pages into a disposable workspace first.
+
+### Authenticated proposals
+
+The MCP adapter also exposes `propose_update` through the same authenticated
+Streamable HTTP boundary. The caller supplies an existing page's exact ID and
+complete replacement Markdown. Success returns an opaque `proposal_id` together
+with the exact target page, current version token, and unified diff that must be
+shown for later explicit approval.
+
+Creating a proposal does not change Current Memory and does not create Git
+history. Pending proposals are tied to the authenticated principal and retained
+only in bounded process memory: at most 128 entries for 15 minutes by default.
+They are lost on restart and use a state registry separate from Retrieval
+Requests. Authenticated application and Git recording remain a later iteration.

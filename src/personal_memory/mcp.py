@@ -1,7 +1,7 @@
 """Authenticated MCP adapter for the Personal Memory workspace."""
 
 from collections import OrderedDict
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from _thread import LockType
@@ -9,6 +9,7 @@ from pathlib import Path
 from secrets import token_urlsafe
 from threading import Lock
 from time import monotonic
+from typing import Generic, TypeVar
 
 from mcp.server import MCPServer
 from mcp.server.auth.middleware.auth_context import get_access_token
@@ -18,8 +19,11 @@ from mcp.server.mcpserver.exceptions import ToolError
 from pydantic import AnyHttpUrl, BaseModel, ConfigDict
 
 from personal_memory import (
+    MemoryProposalError,
     MemoryRetrievalError,
+    MemoryValidationError,
     MemoryWorkspace,
+    ProposedUpdate,
     RetrievalRequest,
     SearchResult,
 )
@@ -27,6 +31,8 @@ from personal_memory import (
 
 DEFAULT_MAX_PENDING_REQUESTS = 128
 DEFAULT_REQUEST_TTL_SECONDS = 15 * 60
+DEFAULT_MAX_PENDING_PROPOSALS = 128
+DEFAULT_PROPOSAL_TTL_SECONDS = 15 * 60
 
 
 class McpSearchResult(BaseModel):
@@ -58,68 +64,97 @@ class AuthenticatedReadResult(BaseModel):
     markdown: str
 
 
+class AuthenticatedProposalResult(BaseModel):
+    """Inspectable proposal identity retained for later explicit approval."""
+
+    model_config = ConfigDict(frozen=True)
+
+    proposal_id: str
+    page_id: str
+    version_token: str
+    diff: str
+
+
+_State = TypeVar("_State")
+
+
 @dataclass(frozen=True, slots=True)
-class _PendingRequest:
-    request: RetrievalRequest
+class _PendingState(Generic[_State]):
+    value: _State
     principal: tuple[str, str | None, str | None]
     expires_at: float
     lock: LockType = field(default_factory=Lock, repr=False, compare=False)
 
 
-class _RequestRegistry:
-    def __init__(self, max_requests: int, ttl_seconds: int) -> None:
-        if max_requests < 1:
-            raise ValueError("max_pending_requests must be positive.")
+@dataclass(frozen=True, slots=True)
+class _PendingProposal:
+    workspace: MemoryWorkspace
+    proposal: ProposedUpdate
+
+
+class _StateRegistry(Generic[_State]):
+    def __init__(
+        self,
+        max_entries: int,
+        ttl_seconds: int,
+        *,
+        max_entries_name: str,
+        ttl_name: str,
+        unavailable_error: Callable[[], Exception],
+    ) -> None:
+        if max_entries < 1:
+            raise ValueError(f"{max_entries_name} must be positive.")
         if ttl_seconds < 1:
-            raise ValueError("request_ttl_seconds must be positive.")
-        self._max_requests = max_requests
+            raise ValueError(f"{ttl_name} must be positive.")
+        self._max_entries = max_entries
         self._ttl_seconds = ttl_seconds
-        self._requests: OrderedDict[str, _PendingRequest] = OrderedDict()
+        self._entries: OrderedDict[str, _PendingState[_State]] = OrderedDict()
+        self._unavailable_error = unavailable_error
         self._lock = Lock()
 
-    def issue(self, request: RetrievalRequest, access_token: AccessToken) -> str:
+    def issue(self, value: _State, access_token: AccessToken) -> str:
         now = monotonic()
         with self._lock:
             self._discard_expired(now)
-            while len(self._requests) >= self._max_requests:
-                self._requests.popitem(last=False)
-            request_id = token_urlsafe(32)
-            self._requests[request_id] = _PendingRequest(
-                request=request,
+            while len(self._entries) >= self._max_entries:
+                self._entries.popitem(last=False)
+            state_id = token_urlsafe(32)
+            self._entries[state_id] = _PendingState(
+                value=value,
                 principal=principal_components(access_token),
                 expires_at=now + self._ttl_seconds,
             )
-        return request_id
+        return state_id
 
     @contextmanager
     def use(
         self,
-        request_id: str,
+        state_id: str,
         access_token: AccessToken,
-    ) -> Iterator[RetrievalRequest]:
+    ) -> Iterator[_State]:
         principal = principal_components(access_token)
         with self._lock:
             self._discard_expired(monotonic())
-            pending = self._requests.get(request_id)
+            pending = self._entries.get(state_id)
             if pending is None or pending.principal != principal:
-                raise MemoryRetrievalError("Retrieval Request is unavailable.")
+                raise self._unavailable_error()
 
         with pending.lock:
             with self._lock:
                 self._discard_expired(monotonic())
-                current = self._requests.get(request_id)
+                current = self._entries.get(state_id)
                 if current is not pending or current.principal != principal:
-                    raise MemoryRetrievalError("Retrieval Request is unavailable.")
-            yield pending.request
+                    raise self._unavailable_error()
+            yield pending.value
 
     def _discard_expired(self, now: float) -> None:
         expired_ids = [
-            request_id
-            for request_id, pending in self._requests.items()
+            state_id
+            for state_id, pending in self._entries.items()
             if pending.expires_at <= now
         ]
-        for request_id in expired_ids:
-            self._requests.pop(request_id)
+        for state_id in expired_ids:
+            self._entries.pop(state_id)
 
 
 class _LazyWorkspace:
@@ -133,6 +168,9 @@ class _LazyWorkspace:
             if self._workspace is None:
                 self._workspace = MemoryWorkspace(self._workspace_root)
             return self._workspace
+
+    def fresh(self) -> MemoryWorkspace:
+        return MemoryWorkspace(self._workspace_root)
 
 
 def _mcp_result(result: SearchResult) -> McpSearchResult:
@@ -154,10 +192,29 @@ def create_mcp_server(
     required_scopes: tuple[str, ...] = ("memory:read",),
     max_pending_requests: int = DEFAULT_MAX_PENDING_REQUESTS,
     request_ttl_seconds: int = DEFAULT_REQUEST_TTL_SECONDS,
+    max_pending_proposals: int = DEFAULT_MAX_PENDING_PROPOSALS,
+    proposal_ttl_seconds: int = DEFAULT_PROPOSAL_TTL_SECONDS,
 ) -> MCPServer:
     """Create the authenticated MCP boundary for one Canonical Memory workspace."""
     workspace = _LazyWorkspace(workspace_root)
-    requests = _RequestRegistry(max_pending_requests, request_ttl_seconds)
+    requests = _StateRegistry[RetrievalRequest](
+        max_pending_requests,
+        request_ttl_seconds,
+        max_entries_name="max_pending_requests",
+        ttl_name="request_ttl_seconds",
+        unavailable_error=lambda: MemoryRetrievalError(
+            "Retrieval Request is unavailable."
+        ),
+    )
+    proposals = _StateRegistry[_PendingProposal](
+        max_pending_proposals,
+        proposal_ttl_seconds,
+        max_entries_name="max_pending_proposals",
+        ttl_name="proposal_ttl_seconds",
+        unavailable_error=lambda: MemoryProposalError(
+            "Proposed Update is unavailable."
+        ),
+    )
     server = MCPServer(
         "Personal Memory",
         token_verifier=token_verifier,
@@ -204,5 +261,27 @@ def create_mcp_server(
         except MemoryRetrievalError as error:
             raise ToolError(str(error)) from error
         return AuthenticatedReadResult(markdown=markdown)
+
+    @server.tool(structured_output=True)
+    def propose_update(page_id: str, markdown: str) -> AuthenticatedProposalResult:
+        """Propose complete replacement Markdown without changing Current Memory."""
+        access_token = get_access_token()
+        if access_token is None:
+            raise ToolError("Authentication is required.")
+        proposal_workspace = workspace.fresh()
+        try:
+            proposal = proposal_workspace.propose_update(page_id, markdown)
+        except (MemoryProposalError, MemoryValidationError) as error:
+            raise ToolError(str(error)) from error
+        proposal_id = proposals.issue(
+            _PendingProposal(workspace=proposal_workspace, proposal=proposal),
+            access_token,
+        )
+        return AuthenticatedProposalResult(
+            proposal_id=proposal_id,
+            page_id=proposal.page_id,
+            version_token=proposal.version_token,
+            diff=proposal.diff,
+        )
 
     return server
