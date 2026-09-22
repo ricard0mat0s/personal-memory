@@ -11,6 +11,7 @@ from mcp.types import CallToolResult, TextContent
 from starlette.types import ASGIApp
 
 from personal_memory.mcp import create_mcp_server
+from personal_memory._git_recording import UpdateRecorder
 
 
 RESOURCE_SERVER_URL = "http://127.0.0.1:8000/mcp"
@@ -101,6 +102,7 @@ def create_test_server(
     request_ttl_seconds: int = 15 * 60,
     max_pending_proposals: int = 128,
     proposal_ttl_seconds: int = 15 * 60,
+    update_recorder: UpdateRecorder | None = None,
 ) -> MCPServer:
     return create_mcp_server(
         workspace_root,
@@ -112,6 +114,7 @@ def create_test_server(
         request_ttl_seconds=request_ttl_seconds,
         max_pending_proposals=max_pending_proposals,
         proposal_ttl_seconds=proposal_ttl_seconds,
+        update_recorder=update_recorder,
     )
 
 

@@ -18,7 +18,15 @@ from mcp.server.auth.settings import AuthSettings
 from mcp.server.mcpserver.exceptions import ToolError
 from pydantic import AnyHttpUrl, BaseModel, ConfigDict
 
+from personal_memory._git_recording import (
+    GitRecordingError,
+    GitUpdateRecorder,
+    UpdateRecorder,
+)
 from personal_memory import (
+    AppliedUpdate,
+    ExplicitApproval,
+    MemoryApplicationError,
     MemoryProposalError,
     MemoryRetrievalError,
     MemoryValidationError,
@@ -73,6 +81,16 @@ class AuthenticatedProposalResult(BaseModel):
     page_id: str
     version_token: str
     diff: str
+
+
+class AuthenticatedAppliedResult(BaseModel):
+    """Applied update identity after its single Git recording."""
+
+    model_config = ConfigDict(frozen=True)
+
+    page_id: str
+    previous_version_token: str
+    version_token: str
 
 
 _State = TypeVar("_State")
@@ -156,6 +174,13 @@ class _StateRegistry(Generic[_State]):
         for state_id in expired_ids:
             self._entries.pop(state_id)
 
+    def discard(self, state_id: str, value: _State) -> None:
+        """Release successfully consumed state without removing a replacement."""
+        with self._lock:
+            pending = self._entries.get(state_id)
+            if pending is not None and pending.value is value:
+                self._entries.pop(state_id)
+
 
 class _LazyWorkspace:
     def __init__(self, workspace_root: str | Path) -> None:
@@ -194,6 +219,7 @@ def create_mcp_server(
     request_ttl_seconds: int = DEFAULT_REQUEST_TTL_SECONDS,
     max_pending_proposals: int = DEFAULT_MAX_PENDING_PROPOSALS,
     proposal_ttl_seconds: int = DEFAULT_PROPOSAL_TTL_SECONDS,
+    update_recorder: UpdateRecorder | None = None,
 ) -> MCPServer:
     """Create the authenticated MCP boundary for one Canonical Memory workspace."""
     workspace = _LazyWorkspace(workspace_root)
@@ -215,6 +241,7 @@ def create_mcp_server(
             "Proposed Update is unavailable."
         ),
     )
+    recorder = update_recorder or GitUpdateRecorder(workspace_root)
     server = MCPServer(
         "Personal Memory",
         token_verifier=token_verifier,
@@ -282,6 +309,38 @@ def create_mcp_server(
             page_id=proposal.page_id,
             version_token=proposal.version_token,
             diff=proposal.diff,
+        )
+
+    @server.tool(structured_output=True)
+    def apply_update(proposal_id: str) -> AuthenticatedAppliedResult:
+        """Explicitly approve, apply, and Git-record one exact proposed update."""
+        access_token = get_access_token()
+        if access_token is None:
+            raise ToolError("Authentication is required.")
+
+        def record_applied_update(applied: AppliedUpdate) -> None:
+            recorder.record(applied.page_id, applied.version_token)
+
+        try:
+            with proposals.use(proposal_id, access_token) as pending:
+                recorder.prepare(pending.proposal.page_id)
+                applied = pending.workspace.apply_update(
+                    pending.proposal,
+                    ExplicitApproval.for_proposal(pending.proposal),
+                    after_application=record_applied_update,
+                )
+                proposals.discard(proposal_id, pending)
+        except (
+            GitRecordingError,
+            MemoryApplicationError,
+            MemoryProposalError,
+            MemoryValidationError,
+        ) as error:
+            raise ToolError(str(error)) from error
+        return AuthenticatedAppliedResult(
+            page_id=applied.page_id,
+            previous_version_token=applied.previous_version_token,
+            version_token=applied.version_token,
         )
 
     return server

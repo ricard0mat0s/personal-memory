@@ -100,8 +100,25 @@ complete replacement Markdown. Success returns an opaque `proposal_id` together
 with the exact target page, current version token, and unified diff that must be
 shown for later explicit approval.
 
-Creating a proposal does not change Current Memory and does not create Git
-history. Pending proposals are tied to the authenticated principal and retained
-only in bounded process memory: at most 128 entries for 15 minutes by default.
-They are lost on restart and use a state registry separate from Retrieval
-Requests. Authenticated application and Git recording remain a later iteration.
+Creating a proposal does not change Current Memory or Git history. Pending
+proposals are tied to the authenticated principal and retained only in bounded
+process memory: at most 128 entries for 15 minutes by default. They are lost on
+restart and use a state registry separate from Retrieval Requests.
+
+### Authenticated approval, application, and recording
+
+Calling MCP `apply_update` with that exact `proposal_id` is the authorized
+caller's explicit approval. The adapter resolves only a pending proposal owned
+by that authenticated principal, creates the offline `ExplicitApproval`, and
+delegates the stale, foreign, and single-use checks plus atomic replacement to
+the same `MemoryWorkspace` that created the proposal. A successful response
+returns the applied page's old and new version tokens.
+
+Before changing Current Memory, the recorder requires the supplied workspace to
+be the Git worktree root, a configured Git author, and a tracked, clean target
+page. It then commits only that page with the subject
+`memory: update <page_id>`; unrelated staged or working-tree changes are not
+included. If Git recording fails, the workspace atomically restores Current
+Memory and keeps the proposal available for the same authenticated caller to
+retry after inspecting Git status. If restoration itself fails, the tool reports
+that recovery failure for manual intervention.

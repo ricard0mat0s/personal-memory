@@ -99,6 +99,26 @@ async def test_in_memory_transport_cannot_bypass_proposal_authorization(
 
 
 @pytest.mark.anyio
+async def test_in_memory_transport_cannot_bypass_application_authorization(
+    tmp_path: Path,
+) -> None:
+    write_unsafe_memory_page(tmp_path)
+    server = create_test_server(tmp_path)
+
+    async with Client(server) as client:
+        result = await client.call_tool(
+            "apply_update",
+            {"proposal_id": "not-issued"},
+        )
+
+    assert result.is_error
+    assert result.structured_content is None
+    assert len(result.content) == 1
+    assert isinstance(result.content[0], TextContent)
+    assert "Authentication is required" in result.content[0].text
+
+
+@pytest.mark.anyio
 async def test_search_requires_the_configured_read_scope(tmp_path: Path) -> None:
     write_unsafe_memory_page(tmp_path)
     server = create_test_server(tmp_path)
