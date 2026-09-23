@@ -67,7 +67,6 @@ async def run_retrieval(
         token_verifier=SmokeTokenVerifier(),
         issuer_url="https://auth.example.com",
         resource_server_url=RESOURCE_SERVER_URL,
-        required_scopes=("memory:read",),
     )
     transport = httpx2.ASGITransport(app=server.streamable_http_app())
     async with server.session_manager.run():

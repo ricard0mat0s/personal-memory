@@ -36,11 +36,19 @@ class StaticTokenVerifier(TokenVerifier):
                 resource="https://other.example.com/mcp",
                 subject="synthetic-user",
             )
-        if token == "wrong-scope-test-token":
+        if token == "write-only-test-token":
             return AccessToken(
                 token=token,
                 client_id="synthetic-client",
                 scopes=["memory:write"],
+                resource=RESOURCE_SERVER_URL,
+                subject="synthetic-user",
+            )
+        if token == "read-only-test-token":
+            return AccessToken(
+                token=token,
+                client_id="synthetic-client",
+                scopes=["memory:read"],
                 resource=RESOURCE_SERVER_URL,
                 subject="synthetic-user",
             )
@@ -49,7 +57,7 @@ class StaticTokenVerifier(TokenVerifier):
         return AccessToken(
             token=token,
             client_id="synthetic-client",
-            scopes=["memory:read"],
+            scopes=["memory:read", "memory:write"],
             resource=RESOURCE_SERVER_URL,
             subject=(
                 "other-synthetic-user"
@@ -109,7 +117,6 @@ def create_test_server(
         token_verifier=StaticTokenVerifier(),
         issuer_url="https://auth.example.com",
         resource_server_url=RESOURCE_SERVER_URL,
-        required_scopes=("memory:read",),
         max_pending_requests=max_pending_requests,
         request_ttl_seconds=request_ttl_seconds,
         max_pending_proposals=max_pending_proposals,
@@ -141,8 +148,11 @@ async def connected_client(
 
 
 @asynccontextmanager
-async def authenticated_client(server: MCPServer) -> AsyncIterator[Client]:
+async def authenticated_client(
+    server: MCPServer,
+    token: str = "valid-test-token",
+) -> AsyncIterator[Client]:
     app = server.streamable_http_app()
     async with server.session_manager.run():
-        async with connected_client(app, "valid-test-token") as client:
+        async with connected_client(app, token) as client:
             yield client

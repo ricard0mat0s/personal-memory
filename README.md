@@ -92,6 +92,12 @@ writes and does not contact an identity provider or other network service. Do
 not point initial experiments at the canonical personal-memory repository; copy
 a few non-sensitive pages into a disposable workspace first.
 
+The MCP adapter requires `memory:read` for `search_memory` and `read_memory`.
+It requires the separate `memory:write` scope for `propose_update` and
+`apply_update`; a read-only token cannot create proposal state or invoke an
+update. Resource and token validation still occur before any tool-level scope
+check. Configured read and write scope names must be non-empty and distinct.
+
 ### Authenticated proposals
 
 The MCP adapter also exposes `propose_update` through the same authenticated

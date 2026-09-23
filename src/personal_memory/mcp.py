@@ -41,6 +41,8 @@ DEFAULT_MAX_PENDING_REQUESTS = 128
 DEFAULT_REQUEST_TTL_SECONDS = 15 * 60
 DEFAULT_MAX_PENDING_PROPOSALS = 128
 DEFAULT_PROPOSAL_TTL_SECONDS = 15 * 60
+DEFAULT_READ_SCOPE = "memory:read"
+DEFAULT_WRITE_SCOPE = "memory:write"
 
 
 class McpSearchResult(BaseModel):
@@ -208,13 +210,23 @@ def _mcp_result(result: SearchResult) -> McpSearchResult:
     )
 
 
+def _require_scope(scope: str) -> AccessToken:
+    access_token = get_access_token()
+    if access_token is None:
+        raise ToolError("Authentication is required.")
+    if scope not in access_token.scopes:
+        raise ToolError(f"The {scope!r} scope is required.")
+    return access_token
+
+
 def create_mcp_server(
     workspace_root: str | Path,
     *,
     token_verifier: TokenVerifier,
     issuer_url: str,
     resource_server_url: str,
-    required_scopes: tuple[str, ...] = ("memory:read",),
+    read_scope: str = DEFAULT_READ_SCOPE,
+    write_scope: str = DEFAULT_WRITE_SCOPE,
     max_pending_requests: int = DEFAULT_MAX_PENDING_REQUESTS,
     request_ttl_seconds: int = DEFAULT_REQUEST_TTL_SECONDS,
     max_pending_proposals: int = DEFAULT_MAX_PENDING_PROPOSALS,
@@ -222,6 +234,17 @@ def create_mcp_server(
     update_recorder: UpdateRecorder | None = None,
 ) -> MCPServer:
     """Create the authenticated MCP boundary for one Canonical Memory workspace."""
+    configured_scopes = (read_scope, write_scope)
+    if (
+        any(
+            not isinstance(scope, str)
+            or not scope
+            or scope != scope.strip()
+            for scope in configured_scopes
+        )
+        or read_scope == write_scope
+    ):
+        raise ValueError("read_scope and write_scope must be distinct non-empty strings.")
     workspace = _LazyWorkspace(workspace_root)
     requests = _StateRegistry[RetrievalRequest](
         max_pending_requests,
@@ -248,7 +271,7 @@ def create_mcp_server(
         auth=AuthSettings(
             issuer_url=AnyHttpUrl(issuer_url),
             resource_server_url=AnyHttpUrl(resource_server_url),
-            required_scopes=list(required_scopes),
+            required_scopes=[],
             validate_token_resource=True,
         ),
     )
@@ -259,9 +282,7 @@ def create_mcp_server(
         scopes: list[str] | None = None,
     ) -> AuthenticatedSearchResult:
         """Search permitted memory within one bounded Retrieval Request."""
-        access_token = get_access_token()
-        if access_token is None:
-            raise ToolError("Authentication is required.")
+        access_token = _require_scope(read_scope)
         request = RetrievalRequest(
             query=query,
             scopes=tuple(scopes) if scopes is not None else None,
@@ -279,9 +300,7 @@ def create_mcp_server(
     @server.tool(structured_output=True)
     def read_memory(request_id: str, selection: str) -> AuthenticatedReadResult:
         """Read complete Current Memory selected from an authenticated search."""
-        access_token = get_access_token()
-        if access_token is None:
-            raise ToolError("Authentication is required.")
+        access_token = _require_scope(read_scope)
         try:
             with requests.use(request_id, access_token) as request:
                 markdown = workspace.get().read_memory(request, selection)
@@ -292,9 +311,7 @@ def create_mcp_server(
     @server.tool(structured_output=True)
     def propose_update(page_id: str, markdown: str) -> AuthenticatedProposalResult:
         """Propose complete replacement Markdown without changing Current Memory."""
-        access_token = get_access_token()
-        if access_token is None:
-            raise ToolError("Authentication is required.")
+        access_token = _require_scope(write_scope)
         proposal_workspace = workspace.fresh()
         try:
             proposal = proposal_workspace.propose_update(page_id, markdown)
@@ -314,9 +331,7 @@ def create_mcp_server(
     @server.tool(structured_output=True)
     def apply_update(proposal_id: str) -> AuthenticatedAppliedResult:
         """Explicitly approve, apply, and Git-record one exact proposed update."""
-        access_token = get_access_token()
-        if access_token is None:
-            raise ToolError("Authentication is required.")
+        access_token = _require_scope(write_scope)
 
         def record_applied_update(applied: AppliedUpdate) -> None:
             recorder.record(applied.page_id, applied.version_token)
