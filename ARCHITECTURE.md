@@ -99,6 +99,46 @@ Page changes. The returned immutable `AppliedUpdate` identifies the page and
 its previous and new version tokens. Git commits, MCP transport, OAuth,
 connectors, and real personal-memory data remain outside this milestone.
 
+### Milestone 5 authenticated adapter iterations
+
+The first three MCP adapter iterations expose `search_memory`, `read_memory`,
+and `propose_update` over Streamable HTTP. The adapter accepts the SDK's
+`TokenVerifier` contract and resource-server settings; it does not implement an
+identity provider. HTTP middleware refuses a missing, rejected, incorrectly
+scoped, or wrong-resource bearer token before the adapter opens Canonical
+Memory. All three tools also fail closed outside an authenticated HTTP request.
+
+An authorized call creates the existing `RetrievalRequest`, delegates search to
+`MemoryWorkspace`, and returns the existing inspectable Search Result fields
+plus an opaque `request_id`. The adapter retains that request in bounded process
+memory: at most 128 pending requests for 15 minutes each, evicting expired and
+oldest state first. Retained state is tied to the authenticated principal and
+does not survive a process restart.
+
+An authorized `read_memory(request_id, selection)` resolves only state owned by
+the same principal and delegates the candidate selection to `MemoryWorkspace`.
+Unknown, expired, evicted, or foreign identifiers fail with the same unavailable
+error before Canonical Memory is opened. A valid request remains usable for
+candidate reads until its existing shared page and word budget is exhausted or
+the adapter state expires or is evicted. The tool returns the complete current
+Markdown as structured output.
+
+An authorized `propose_update(page_id, markdown)` delegates complete replacement
+validation and exact diff generation to a fresh `MemoryWorkspace`. It returns
+the public proposal identity plus an opaque `proposal_id` without changing
+Current Memory or creating Git history. The adapter retains the originating
+workspace and proposal together so later approval can preserve the offline
+same-workspace identity check. At most 128 proposals are kept for 15 minutes by
+default; expiry or oldest-first eviction releases the complete proposal state.
+Proposal state is principal-bound, process-local, and separate from retrieval
+state.
+
+The MCP adapter is a separate outer adapter, not a second home for memory rules.
+It converts wire values and known workspace failures while deterministic search,
+scope validation, page eligibility, ranking, candidate selection, and the
+Retrieval Cap remain behind `MemoryWorkspace`. `apply_update` and Git recording
+are deliberately not exposed by these iterations.
+
 ### Internal design
 
 Markdown parsing, frontmatter validation, lexical ranking, word accounting,
@@ -125,10 +165,10 @@ src/personal_memory/
   _markdown.py        # private page parsing and validation
   _retrieval.py       # request budget, deterministic ranking, result shaping
   _proposals.py       # private diff and page-version handling
-  mcp.py               # future MCP adapter only
+  mcp.py              # authenticated MCP adapter
 tests/
   test_workspace.py   # observable behavior at the MemoryWorkspace seam
-  fixtures/           # synthetic, permitted Markdown only
+  mcp/                # authenticated adapter behavior with synthetic memory
 ```
 
 This shape preserves **depth**: the public Interface stays small while the

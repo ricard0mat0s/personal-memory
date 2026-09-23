@@ -2,6 +2,7 @@
 
 import os
 from _thread import LockType
+from collections.abc import Callable
 from pathlib import Path
 from threading import Lock
 
@@ -239,19 +240,22 @@ class MemoryWorkspace:
         self,
         proposal: ProposedUpdate,
         approval: ExplicitApproval,
+        *,
+        after_application: Callable[[AppliedUpdate], None] | None = None,
     ) -> AppliedUpdate:
-        """Apply one exact, explicitly approved, current proposal atomically."""
+        """Apply one exact update, optionally recording it before finalizing."""
         if not isinstance(proposal, ProposedUpdate):
             raise MemoryApplicationError("Update must be a Proposed Update.")
         if not isinstance(approval, ExplicitApproval):
             raise MemoryApplicationError("Update requires Explicit Approval.")
         with self._application_lock:
-            return self._apply_update(proposal, approval)
+            return self._apply_update(proposal, approval, after_application)
 
     def _apply_update(
         self,
         proposal: ProposedUpdate,
         approval: ExplicitApproval,
+        after_application: Callable[[AppliedUpdate], None] | None,
     ) -> AppliedUpdate:
         if not approval_matches(approval, proposal):
             raise MemoryApplicationError(
@@ -303,10 +307,29 @@ class MemoryWorkspace:
             current_page.markdown,
             self._memory_root,
         )
-        self._pending_updates.pop(id(proposal))
-        self._applied_updates.append(proposal)
-        return AppliedUpdate(
+        applied = AppliedUpdate(
             page_id=current_page.page_id,
             previous_version_token=current_version,
             version_token=page_version(replacement_page),
         )
+        if after_application is not None:
+            try:
+                after_application(applied)
+            except Exception as error:
+                try:
+                    replace_atomically(
+                        target,
+                        current_page.markdown,
+                        replacement_page.markdown,
+                        self._memory_root,
+                    )
+                except MemoryApplicationError as rollback_error:
+                    raise MemoryApplicationError(
+                        "Approved update could not be recorded or rolled back."
+                    ) from rollback_error
+                raise MemoryApplicationError(
+                    "Approved update could not be recorded; Current Memory was restored."
+                ) from error
+        self._pending_updates.pop(id(proposal))
+        self._applied_updates.append(proposal)
+        return applied
