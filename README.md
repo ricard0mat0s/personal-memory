@@ -66,8 +66,9 @@ uv run pytest
 ```
 
 The test suite creates temporary synthetic workspaces. It does not read real
-personal memory or require GitHub, a live OAuth provider, or network access at
-test time.
+personal memory or require GitHub, a live OAuth provider, or external network
+access. Launcher integration tests use loopback HTTP/HTTPS sockets and synthetic
+signing keys.
 
 ### Authenticated retrieval smoke test
 
@@ -128,3 +129,18 @@ included. If Git recording fails, the workspace atomically restores Current
 Memory and keeps the proposal available for the same authenticated caller to
 retry after inspecting Git status. If restoration itself fails, the tool reports
 that recovery failure for manual intervention.
+
+### Run with Auth0
+
+The read-only HTTP launcher validates Auth0 access tokens using the tenant's
+rotating public signing keys and restricts access to explicitly allowed subjects.
+Copy `.env.example` to `.env`, fill in your issuer, API audience, and allowed
+subject, then run:
+
+```bash
+uv sync --locked
+uv run personal-memory-server /path/to/disposable-workspace
+```
+
+See [Auth0 and Postman](docs/auth0-postman.md) for dashboard setup, configuration,
+and an end-to-end Postman test. The server does not need your client secret.
