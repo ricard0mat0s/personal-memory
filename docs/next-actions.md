@@ -1,5 +1,28 @@
 # Next action
 
-Write one failing **process-level HTTP test**: launch the server as a separate process with a temporary workspace passed on the command line and offline test settings in the environment. Send a valid MCP request over a real local socket without a token and assert HTTP `401`. This test proves that the new launcher serves the protected MCP endpoint. The existing `test_unauthorized_search_is_refused_before_memory_is_opened` already covers the adapter's `401` behavior in-process, so do not add another in-process denial test. Then make the smallest implementation change that passes the new test.
+Run the live Auth0 smoke check described in [Auth0 and Postman](auth0-postman.md)
+against the disposable `smoke.md` fixture, then record the sanitized evidence in
+the implementation pull request for [issue #12](https://github.com/ricard0mat0s/personal-memory/issues/12).
 
-Follow the agreed sequence in [authenticated-retrieval-design.md](authenticated-retrieval-design.md). The project owner will write the implementation as a learning exercise.
+1. Configure the Auth0 issuer, API audience, and exact allowed subject. For the
+   documented M2M test, authorize the test application for `memory:read` and use
+   its issued token's subject. Keep credentials in private local configuration.
+2. Follow the guide to create the disposable workspace and launch the installed
+   server with an explicit bind address and port.
+3. Obtain a real Auth0-issued access token in Postman. Connect over Streamable
+   HTTP, confirm only the two retrieval tools are advertised, search for
+   `Smoke verification`, and read `smoke.md` with the same returned Retrieval
+   Request ID. Confirm the complete expected Markdown is returned.
+4. Confirm the missing-token request receives HTTP 401. Add the tested revision,
+   timestamp, endpoint, search/read outcomes, matching request ID, and other
+   fields from the guide's evidence template to the PR, excluding credentials.
+
+Configurable binding, startup configuration rejection, and automated real-HTTP
+retrieval coverage are implemented. The automated suite uses synthetic signing
+keys and is not evidence of a successful live Auth0 run. The remaining check
+requires the owner's real provider configuration and token.
+
+Use issue #12's acceptance criteria when preparing the PR, and include
+`Closes #12` once the work and live verification are complete. Cross-client
+certification, approved-write demonstrations, and production hosting remain
+subsequent increments.
