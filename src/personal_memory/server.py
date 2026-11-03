@@ -11,6 +11,7 @@ import jwt
 from dotenv import load_dotenv
 from mcp.server.auth.provider import AccessToken, TokenVerifier
 from mcp.server.transport_security import TransportSecuritySettings
+from pydantic import AnyHttpUrl
 
 from personal_memory.mcp import create_mcp_server
 
@@ -31,8 +32,10 @@ class JwtTokenVerifier(TokenVerifier):
             parsed.scheme != "https" or not parsed.hostname
             or parsed.username or parsed.password or parsed.query or parsed.fragment
             or parsed.path not in {"", "/"}
+            or parsed.port == 0
         ):
             raise ValueError("Auth0 issuer must be an HTTPS tenant origin.")
+        AnyHttpUrl(issuer)
         if not audience.strip():
             raise ValueError("Auth0 audience must not be blank.")
         if not allowed_subjects or any(not subject.strip() for subject in allowed_subjects):
@@ -110,7 +113,20 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     if not args.allowed_subjects:
         parser.error("--allowed-subject or AUTH0_ALLOWED_SUBJECTS is required")
     url_host = f"[{args.host}]" if ":" in args.host else args.host
-    args.resource_url = args.resource_url or f"http://{url_host}:{args.port}/mcp"
+    if args.resource_url is None:
+        args.resource_url = f"http://{url_host}:{args.port}/mcp"
+    try:
+        resource = urlsplit(args.resource_url)
+        if (
+            resource.scheme not in {"http", "https"} or not resource.hostname
+            or resource.username or resource.password or resource.query or resource.fragment
+        ):
+            raise ValueError("resource URL must not contain credentials, a query, or a fragment")
+        if resource.port == 0:
+            raise ValueError("resource URL port must be between 1 and 65535")
+        args.resource_url = str(AnyHttpUrl(args.resource_url))
+    except ValueError:
+        parser.error("--resource-url or MCP_RESOURCE_URL must be an absolute HTTP(S) URL without credentials, a query, or a fragment")
     return args
 
 

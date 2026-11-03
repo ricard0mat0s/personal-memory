@@ -61,6 +61,12 @@ MCP URL, while the audience must remain your Auth0 API Identifier.
 This launcher exposes only `search_memory` and `read_memory`. Write permissions
 alone do not expose update tools.
 
+Missing or blank issuer, audience, or allowed subjects stop startup before the
+HTTP listener opens. Invalid issuer/resource URLs and ports also stop startup.
+The issuer must be an HTTPS tenant origin. The resource must be an absolute
+HTTP(S) URL without credentials, a query, or a fragment; omit it to derive the
+URL from the bind address and port, rather than setting it to an empty string.
+
 ## Obtain a token in Postman
 
 Create an HTTP request with **No Auth**:
