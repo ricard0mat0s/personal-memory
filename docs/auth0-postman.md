@@ -40,12 +40,30 @@ A valid token from another identity is refused. `.env` is ignored by Git and is
 loaded from the current directory; existing environment variables take priority.
 The existing `.env` is never overwritten by the launcher.
 
-Use a disposable workspace with valid Markdown under `memory/`:
+From the repository root, create a disposable workspace with one synthetic
+Memory Page. The following commands use Bash (including WSL):
 
 ```bash
+SMOKE_WORKSPACE="$(mktemp -d -t personal-memory-smoke-XXXXXX)"
+mkdir "$SMOKE_WORKSPACE/memory"
+cat > "$SMOKE_WORKSPACE/memory/smoke.md" <<'MARKDOWN'
+---
+title: Smoke verification
+scope: individual_project
+related_pages: []
+---
+
+Disposable memory used to verify live Auth0 retrieval.
+MARKDOWN
+
 uv sync --locked
-uv run personal-memory-server /path/to/disposable-workspace
+uv run personal-memory-server "$SMOKE_WORKSPACE" --host 127.0.0.1 --port 8000
 ```
+
+Keep that terminal running while using Postman. This run uses the normal Auth0
+issuer configured in `.env`; do not replace it with the automated tests' issuer
+or certificate settings. Use the same audience in `.env` and Postman, and put
+the token's exact allowed subject in `AUTH0_ALLOWED_SUBJECTS`.
 
 Alternatively, `uv run python src/server.py /path/to/disposable-workspace`.
 The listener defaults to `127.0.0.1` and port 8000. Set `MCP_HOST` or use `--host`
@@ -99,12 +117,22 @@ and enter `http://127.0.0.1:8000/mcp`. Under Authorization select **Bearer Token
 and enter `{{access_token}}`. Connect and call `search_memory`:
 
 ```json
-{"query": "direction"}
+{"query": "Smoke verification", "scopes": ["individual_project"]}
 ```
 
-An empty results list is still a successful authorized search. To read a result,
-call `read_memory` with the returned `request_id` and the result's `page_id` as
-`selection`.
+The search must succeed and return `smoke.md`, titled `Smoke verification`, plus
+a `request_id`. Copy that ID from this actual response. In the same MCP
+connection, call `read_memory` with:
+
+```json
+{"request_id": "PASTE_THE_RETURNED_REQUEST_ID", "selection": "smoke.md"}
+```
+
+The read must succeed and return the complete Markdown above, including
+`Disposable memory used to verify live Auth0 retrieval.` An empty search result
+or a successful connection alone does not complete this smoke check. Search and
+read must use the same Retrieval Request; if it expires or the server restarts,
+search again and use the new ID.
 
 Verify failures as well:
 
@@ -117,8 +145,38 @@ Verify failures as well:
 
 A signing-key lookup failure also refuses authentication. Check the issuer,
 audience, allowed subject, token expiry, and network access to Auth0 when a
-valid-looking token receives 401. A successful authenticated search proves the
-complete Auth0-to-server path works.
+valid-looking token receives 401. A successful search followed by the matching
+read demonstrates live retrieval through the Auth0-to-server path.
+
+## Record live smoke evidence
+
+After the manual check, add a sanitized record to the pull request using this
+template. Replace each placeholder with an observed result; these instructions
+and passing automated tests are not evidence that a live Auth0 run happened.
+Use `git rev-parse HEAD` to record the tested revision.
+
+```text
+Tested commit: <SHA>
+UTC date/time: <timestamp>
+Provider and grant: Auth0 / client_credentials
+Token source: real Auth0 tenant, not synthetic test credentials
+Issuer/audience/allowed subject matched server configuration: <yes/no>
+MCP client: Postman <version>, Streamable HTTP
+Endpoint: http://127.0.0.1:8000/mcp
+Workspace: disposable workspace, only synthetic smoke.md
+Advertised tools: <observed tool names>
+Search: query="Smoke verification", scopes=["individual_project"]
+Search result: <page_id and title>
+Returned Retrieval Request ID: <actual ID>
+Read: selection="smoke.md", request_id=<same actual ID>
+Read outcome: <success/error; confirm complete Markdown and expected body>
+Missing-token check: <observed HTTP status>
+```
+
+Record outcomes or sanitized response bodies, excluding Authorization headers,
+access/refresh/ID tokens, client secrets, and personal Memory Pages. Do not attach
+a Postman environment or collection export containing credentials. When finished,
+stop the disposable server with Ctrl+C; the temporary workspace can be discarded.
 
 References: [Auth0 access-token validation](https://auth0.com/docs/secure/tokens/access-tokens/validate-access-tokens),
 [Auth0 test tokens](https://support.auth0.com/center/s/article/How-can-I-get-or-generate-an-access-token-for-testing),
