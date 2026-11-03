@@ -100,21 +100,25 @@ def signing_issuer(workspace: Path) -> Iterator[tuple[str, rsa.RSAPrivateKey, Pa
 
 
 @contextmanager
-def running_server(workspace: Path) -> Iterator[RunningServer]:
+def running_server(
+    workspace: Path, *, host: str = "127.0.0.1", cli_host: str | None = None,
+) -> Iterator[RunningServer]:
     with signing_issuer(workspace) as (issuer, key, certificate):
-        with _server_process(workspace, issuer, key, certificate) as server:
+        with _server_process(workspace, issuer, key, certificate, host, cli_host) as server:
             yield server
 
 
 @contextmanager
 def _server_process(
     workspace: Path, issuer: str, key: rsa.RSAPrivateKey, certificate: Path,
+    host: str, cli_host: str | None,
 ) -> Iterator[RunningServer]:
     write_memory_page(workspace)
+    bind_host = cli_host or host
     with socket.socket() as listener:
-        listener.bind(("127.0.0.1", 0))
+        listener.bind((bind_host, 0))
         port = listener.getsockname()[1]
-    url = f"http://127.0.0.1:{port}/mcp"
+    url = f"http://{bind_host}:{port}/mcp"
     environment = {
         **os.environ,
         "AUTH0_ISSUER": issuer,
@@ -122,13 +126,15 @@ def _server_process(
         "AUTH0_AUDIENCE": "process-test-api",
         "AUTH0_ALLOWED_SUBJECTS": "test-owner",
         "MCP_RESOURCE_URL": url,
+        "MCP_HOST": host,
         "NO_PROXY": "127.0.0.1,localhost",
         "no_proxy": "127.0.0.1,localhost",
     }
     launcher = Path(sys.executable).with_name("personal-memory-server")
     with (workspace / "server.log").open("w+") as output:
         process = subprocess.Popen(
-            [str(launcher), str(workspace), "--port", str(port)],
+            [str(launcher), str(workspace), "--port", str(port)]
+            + (["--host", cli_host] if cli_host else []),
             cwd=workspace, env=environment, stdout=output, stderr=subprocess.STDOUT,
         )
         try:
@@ -138,7 +144,7 @@ def _server_process(
                     output.seek(0)
                     raise AssertionError(f"Launcher failed to become ready:\n{output.read()}")
                 try:
-                    with socket.create_connection(("127.0.0.1", port), timeout=0.1):
+                    with socket.create_connection((bind_host, port), timeout=0.1):
                         break
                 except OSError:
                     time.sleep(0.05)

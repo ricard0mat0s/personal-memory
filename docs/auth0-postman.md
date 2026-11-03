@@ -29,6 +29,7 @@ Copy `.env.example` to `.env` and replace its placeholders:
 AUTH0_ISSUER=https://YOUR_TENANT.us.auth0.com/
 AUTH0_AUDIENCE=YOUR_EXACT_API_IDENTIFIER
 MCP_RESOURCE_URL=http://127.0.0.1:8000/mcp
+MCP_HOST=127.0.0.1
 AUTH0_ALLOWED_SUBJECTS=YOUR_TEST_CLIENT_ID@clients
 ```
 
@@ -47,10 +48,14 @@ uv run personal-memory-server /path/to/disposable-workspace
 ```
 
 Alternatively, `uv run python src/server.py /path/to/disposable-workspace`.
-The listener binds to `127.0.0.1` and defaults to port 8000. `--port`, `--issuer`,
+The listener defaults to `127.0.0.1` and port 8000. Set `MCP_HOST` or use `--host`
+to choose the bind address; the command-line option takes priority. `--port`, `--issuer`,
 `--audience`, `--resource-url`, and repeatable `--allowed-subject` options override
 configuration. If the port changes, update `MCP_RESOURCE_URL` too (or omit it for
-the automatic local URL). For hosted access the resource URL must be the external
+the automatic URL derived from the bind address and port). For wildcard bind
+addresses such as `0.0.0.0`, set `MCP_RESOURCE_URL` to the actual client-facing
+address. Host and Origin checks accept that configured resource origin.
+For hosted access the resource URL must be the external
 MCP URL, while the audience must remain your Auth0 API Identifier.
 
 This launcher exposes only `search_memory` and `read_memory`. Write permissions

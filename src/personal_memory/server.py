@@ -10,6 +10,7 @@ from urllib.parse import urlsplit
 import jwt
 from dotenv import load_dotenv
 from mcp.server.auth.provider import AccessToken, TokenVerifier
+from mcp.server.transport_security import TransportSecuritySettings
 
 from personal_memory.mcp import create_mcp_server
 
@@ -87,6 +88,7 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     load_dotenv(dotenv_path=Path.cwd() / ".env", override=False)
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("workspace_path", type=Path)
+    parser.add_argument("--host", default=os.getenv("MCP_HOST", "127.0.0.1"))
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--issuer", default=os.getenv("AUTH0_ISSUER"))
     parser.add_argument("--audience", default=os.getenv("AUTH0_AUDIENCE"))
@@ -107,7 +109,8 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     args.allowed_subjects = frozenset(s.strip() for s in subjects if s.strip())
     if not args.allowed_subjects:
         parser.error("--allowed-subject or AUTH0_ALLOWED_SUBJECTS is required")
-    args.resource_url = args.resource_url or f"http://127.0.0.1:{args.port}/mcp"
+    url_host = f"[{args.host}]" if ":" in args.host else args.host
+    args.resource_url = args.resource_url or f"http://{url_host}:{args.port}/mcp"
     return args
 
 
@@ -129,7 +132,14 @@ def main(argv: Sequence[str] | None = None) -> None:
         resource_server_url=args.resource_url,
         exposed_tools=frozenset({"search_memory", "read_memory"}),
     )
-    server.run(transport="streamable-http", host="127.0.0.1", port=args.port)
+    resource = urlsplit(args.resource_url)
+    server.run(
+        transport="streamable-http", host=args.host, port=args.port,
+        transport_security=TransportSecuritySettings(
+            allowed_hosts=[resource.netloc],
+            allowed_origins=[f"{resource.scheme}://{resource.netloc}"],
+        ),
+    )
 
 
 if __name__ == "__main__":

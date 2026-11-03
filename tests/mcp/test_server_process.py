@@ -87,3 +87,15 @@ async def test_launched_server_refuses_search_without_read_scope(tmp_path: Path)
                 assert result.structured_content is None
                 assert isinstance(result.content[0], TextContent)
                 assert "memory:read" in result.content[0].text
+
+
+@pytest.mark.parametrize(("host", "cli_host", "expected_host"), [
+    ("127.0.0.2", None, "127.0.0.2"),
+    ("127.0.0.2", "127.0.0.1", "127.0.0.1"),
+])
+def test_launcher_uses_configured_bind_address(
+    tmp_path: Path, host: str, cli_host: str | None, expected_host: str,
+) -> None:
+    with running_server(tmp_path, host=host, cli_host=cli_host) as server:
+        assert server.url.startswith(f"http://{expected_host}:")
+        assert initialize(server).status_code == 401
