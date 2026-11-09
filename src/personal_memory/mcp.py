@@ -225,6 +225,7 @@ def create_mcp_server(
     token_verifier: TokenVerifier,
     issuer_url: str,
     resource_server_url: str,
+    exposed_tools: frozenset[str] | None = None,
     read_scope: str = DEFAULT_READ_SCOPE,
     write_scope: str = DEFAULT_WRITE_SCOPE,
     max_pending_requests: int = DEFAULT_MAX_PENDING_REQUESTS,
@@ -234,6 +235,16 @@ def create_mcp_server(
     update_recorder: UpdateRecorder | None = None,
 ) -> MCPServer:
     """Create the authenticated MCP boundary for one Canonical Memory workspace."""
+    available_tools = frozenset(
+        {"search_memory", "read_memory", "propose_update", "apply_update"}
+    )
+    if exposed_tools is not None:
+        unknown_tools = exposed_tools - available_tools
+        if unknown_tools:
+            raise ValueError(
+                f"Unknown exposed tool(s): {', '.join(sorted(unknown_tools))}."
+            )
+
     configured_scopes = (read_scope, write_scope)
     if (
         any(
@@ -276,7 +287,6 @@ def create_mcp_server(
         ),
     )
 
-    @server.tool(structured_output=True)
     def search_memory(
         query: str,
         scopes: list[str] | None = None,
@@ -297,7 +307,6 @@ def create_mcp_server(
             results=tuple(_mcp_result(result) for result in results),
         )
 
-    @server.tool(structured_output=True)
     def read_memory(request_id: str, selection: str) -> AuthenticatedReadResult:
         """Read complete Current Memory selected from an authenticated search."""
         access_token = _require_scope(read_scope)
@@ -308,7 +317,6 @@ def create_mcp_server(
             raise ToolError(str(error)) from error
         return AuthenticatedReadResult(markdown=markdown)
 
-    @server.tool(structured_output=True)
     def propose_update(page_id: str, markdown: str) -> AuthenticatedProposalResult:
         """Propose complete replacement Markdown without changing Current Memory."""
         access_token = _require_scope(write_scope)
@@ -328,7 +336,6 @@ def create_mcp_server(
             diff=proposal.diff,
         )
 
-    @server.tool(structured_output=True)
     def apply_update(proposal_id: str) -> AuthenticatedAppliedResult:
         """Explicitly approve, apply, and Git-record one exact proposed update."""
         access_token = _require_scope(write_scope)
@@ -357,5 +364,14 @@ def create_mcp_server(
             previous_version_token=applied.previous_version_token,
             version_token=applied.version_token,
         )
+
+    if exposed_tools is None or "search_memory" in exposed_tools:
+        server.tool(structured_output=True)(search_memory)
+    if exposed_tools is None or "read_memory" in exposed_tools:
+        server.tool(structured_output=True)(read_memory)
+    if exposed_tools is None or "propose_update" in exposed_tools:
+        server.tool(structured_output=True)(propose_update)
+    if exposed_tools is None or "apply_update" in exposed_tools:
+        server.tool(structured_output=True)(apply_update)
 
     return server
