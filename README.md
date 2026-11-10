@@ -132,8 +132,9 @@ that recovery failure for manual intervention.
 
 ### Run with Auth0
 
-The read-only HTTP launcher validates Auth0 access tokens using the tenant's
-rotating public signing keys and restricts access to explicitly allowed subjects.
+The HTTP launcher exposes all four tools, validates Auth0 access tokens using
+the tenant's rotating public signing keys, and restricts access to explicitly
+allowed subjects.
 Copy `.env.example` to `.env`, fill in your issuer, API audience, and allowed
 subject, then run:
 

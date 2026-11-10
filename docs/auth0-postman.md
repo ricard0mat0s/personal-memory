@@ -2,9 +2,9 @@
 
 Auth0 issues a signed access token. Postman sends it as a bearer token to the
 MCP server. The server retrieves Auth0's public signing keys, checks the
-signature, issuer, audience, expiration, and allowed subject, then enforces the
-`memory:read` scope. Neither a client secret nor a downloaded public-key file
-is needed by the server.
+signature, issuer, audience, expiration, and allowed subject, then requires
+`memory:read` for retrieval tools and `memory:write` for update tools. Neither
+a client secret nor a downloaded public-key file is needed by the server.
 
 ## Configure Auth0
 
@@ -76,8 +76,9 @@ address. Host and Origin checks accept that configured resource origin.
 For hosted access the resource URL must be the external
 MCP URL, while the audience must remain your Auth0 API Identifier.
 
-This launcher exposes only `search_memory` and `read_memory`. Write permissions
-alone do not expose update tools.
+The launcher exposes `search_memory`, `read_memory`, `propose_update`, and
+`apply_update`. A read-only token can list the tools and call the retrieval
+tools. Calling either update tool requires `memory:write`.
 
 Missing or blank issuer, audience, or allowed subjects stop startup before the
 HTTP listener opens. Invalid issuer/resource URLs and ports also stop startup.
@@ -187,7 +188,7 @@ References: [Auth0 access-token validation](https://auth0.com/docs/secure/tokens
 After `uv sync --locked`, run `uv run pytest tests/mcp/test_server_process.py`.
 These tests start the installed `personal-memory-server` command in a separate
 process and call it through real loopback sockets. They verify missing-token
-rejection, authenticated search/read, the two advertised retrieval tools, bad
+rejection, authenticated search/read, the four advertised tools, bad
 signatures, wrong issuer/audience/owner, expiry, and insufficient scope.
 
 A local HTTPS fixture serves synthetic signing keys. Only the launched test
