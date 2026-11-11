@@ -1,0 +1,7 @@
+interface:
+  display_name: "Update Documentation"
+  short_description: "Synchronize docs with a pre-commit diff"
+  default_prompt: "Use $update-documentation to review the current pre-commit changes and update justified repository documentation."
+
+policy:
+  allow_implicit_invocation: false

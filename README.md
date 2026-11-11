@@ -76,6 +76,12 @@ and source typechecking on Ubuntu. Use `uv sync --locked --python 3.12` to
 reproduce the CI Python version locally; other Python versions are outside
 the initial CI matrix.
 
+The [development workflow](docs/agents/development-workflow.md) explains issue
+approval, test-first implementation, independent reviews, pull requests, and
+merge authorization. Start with `/implement <issue>` for a named approved
+issue or ask the agent to work on the backlog. Each run stops at a PR for
+human review. The required skills are tracked in `.agents/skills/`.
+
 ### Authenticated retrieval smoke test
 
 Milestone 5's first two iterations expose `search_memory` and `read_memory`
