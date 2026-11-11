@@ -26,6 +26,7 @@ personal-memory-server = "personal_memory.server:main"
 dev = [
     "mypy>=1.15,<2.0",
     "pytest>=8.3,<10.0",
+    "types-pyyaml>=6.0,<7.0",
 ]
 
 [tool.setuptools.packages.find]
@@ -34,3 +35,9 @@ where = ["src"]
 [tool.pytest.ini_options]
 addopts = "--basetemp=.pytest-tmp"
 testpaths = ["tests"]
+
+[tool.mypy]
+python_version = "3.12"
+files = ["src/personal_memory"]
+mypy_path = "$MYPY_CONFIG_FILE_DIR/src"
+explicit_package_bases = true

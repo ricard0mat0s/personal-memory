@@ -62,13 +62,19 @@ Requires Python 3.12 or later and [uv](https://docs.astral.sh/uv/).
 
 ```powershell
 uv sync --locked
-uv run pytest
+uv run --no-sync pytest
+uv run --no-sync mypy
 ```
 
 The test suite creates temporary synthetic workspaces. It does not read real
 personal memory or require GitHub, a live OAuth provider, or external network
 access. Launcher integration tests use loopback HTTP/HTTPS sockets and synthetic
 signing keys.
+
+GitHub Actions runs the full test suite on Ubuntu and Windows with Python 3.12
+and source typechecking on Ubuntu. Use `uv sync --locked --python 3.12` to
+reproduce the CI Python version locally; other Python versions are outside
+the initial CI matrix.
 
 ### Authenticated retrieval smoke test
 
