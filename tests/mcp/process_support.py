@@ -130,7 +130,8 @@ def _server_process(
         "NO_PROXY": "127.0.0.1,localhost",
         "no_proxy": "127.0.0.1,localhost",
     }
-    launcher = Path(sys.executable).with_name("personal-memory-server")
+    launcher_name = "personal-memory-server.exe" if os.name == "nt" else "personal-memory-server"
+    launcher = Path(sys.executable).with_name(launcher_name)
     with (workspace / "server.log").open("w+") as output:
         process = subprocess.Popen(
             [str(launcher), str(workspace), "--port", str(port)]
@@ -138,7 +139,7 @@ def _server_process(
             cwd=workspace, env=environment, stdout=output, stderr=subprocess.STDOUT,
         )
         try:
-            deadline = time.monotonic() + 10
+            deadline = time.monotonic() + 30
             while True:
                 if process.poll() is not None or time.monotonic() >= deadline:
                     output.seek(0)
