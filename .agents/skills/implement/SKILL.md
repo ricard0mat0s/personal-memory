@@ -1,6 +1,7 @@
 ---
 name: implement
 description: Implement one approved GitHub issue through tests, independent review, and a pull request; supports a named issue or backlog pickup.
+disable-model-invocation: true
 ---
 
 Read `AGENTS.md`, `docs/agents/development-workflow.md`, and
@@ -16,9 +17,11 @@ branching, verification, PR, and merge rules.
    boundaries. Run focused checks while working. Bring missing decisions or
    material scope changes to the owner; proceed with routine implementation.
 4. Use [update-documentation](../update-documentation/SKILL.md) for the intended
-   change set before committing. Commit in small atomic changes, each with
-   one coherent purpose and its necessary code, tests, and documentation.
-   Reference the issue in commit messages.
+   change set before committing. Commit the work in small, atomic commits, each
+   with one coherent purpose and its necessary code, tests, and documentation
+   needed to keep that change complete and verifiable on its own. Split
+   unrelated changes into separate commits, use a message that describes each
+   change, and reference the issue in commit messages.
 5. Run the full suite and source typechecking using the README commands.
    Commit before review so every intended change is included in `HEAD`.
 6. Fetch `origin/main`, pin its merge-base with `HEAD`, and use

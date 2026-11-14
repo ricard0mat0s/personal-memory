@@ -1,4 +1,4 @@
-"""Run the read-only Personal Memory MCP server with Auth0 access tokens."""
+"""Run the Personal Memory MCP server with Auth0 access tokens."""
 
 import argparse
 import asyncio
@@ -146,7 +146,9 @@ def main(argv: Sequence[str] | None = None) -> None:
         token_verifier=verifier,
         issuer_url=args.issuer.rstrip("/") + "/",
         resource_server_url=args.resource_url,
-        exposed_tools=frozenset({"search_memory", "read_memory"}),
+        exposed_tools=frozenset({
+            "search_memory", "read_memory", "propose_update", "apply_update",
+        }),
     )
     resource = urlsplit(args.resource_url)
     server.run(

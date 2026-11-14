@@ -44,7 +44,9 @@ async def test_launched_server_searches_and_reads_with_owner_token(tmp_path: Pat
         ) as http_client:
             async with Client(streamable_http_client(server.url, http_client=http_client)) as client:
                 listing = await client.list_tools()
-                assert {tool.name for tool in listing.tools} == {"search_memory", "read_memory"}
+                assert {tool.name for tool in listing.tools} == {
+                    "search_memory", "read_memory", "propose_update", "apply_update",
+                }
                 search = await client.call_tool("search_memory", {"query": "direction"})
                 assert not search.is_error
                 assert search.structured_content is not None

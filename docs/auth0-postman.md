@@ -2,9 +2,9 @@
 
 Auth0 issues a signed access token. Postman sends it as a bearer token to the
 MCP server. The server retrieves Auth0's public signing keys, checks the
-signature, issuer, audience, expiration, and allowed subject, then enforces the
-`memory:read` scope. Neither a client secret nor a downloaded public-key file
-is needed by the server.
+signature, issuer, audience, expiration, and allowed subject, then requires
+`memory:read` for retrieval tools and `memory:write` for update tools. Neither
+a client secret nor a downloaded public-key file is needed by the server.
 
 ## Configure Auth0
 
@@ -76,8 +76,9 @@ address. Host and Origin checks accept that configured resource origin.
 For hosted access the resource URL must be the external
 MCP URL, while the audience must remain your Auth0 API Identifier.
 
-This launcher exposes only `search_memory` and `read_memory`. Write permissions
-alone do not expose update tools.
+The launcher exposes `search_memory`, `read_memory`, `propose_update`, and
+`apply_update`. A read-only token can list the tools and call the retrieval
+tools. Calling either update tool requires `memory:write`.
 
 Missing or blank issuer, audience, or allowed subjects stop startup before the
 HTTP listener opens. Invalid issuer/resource URLs and ports also stop startup.
@@ -182,12 +183,59 @@ References: [Auth0 access-token validation](https://auth0.com/docs/secure/tokens
 [Auth0 test tokens](https://support.auth0.com/center/s/article/How-can-I-get-or-generate-an-access-token-for-testing),
 [Postman MCP requests](https://learning.postman.com/docs/use/send-requests/protocols/mcp-requests/create).
 
+## Verify updates from Codex CLI and Antigravity CLI
+
+Use the disposable workspace and running server from above. Initialize Git in
+that workspace and commit the synthetic page before testing either client:
+
+```bash
+cd "$SMOKE_WORKSPACE"
+git init -q
+git config user.name "Personal Memory smoke test"
+git config user.email "smoke@example.com"
+git add memory/smoke.md
+git commit -qm "memory: smoke baseline"
+```
+
+Use a short-lived Auth0 bearer token for an allowed subject. Grant the test
+application `memory:write` and request `memory:read memory:write` if using the
+Postman token request above. Check that the issued token includes both scopes.
+Keep the token out of prompts, Git, and test evidence.
+
+- **Codex CLI.** Set `PERSONAL_MEMORY_SMOKE_TOKEN` in the shell environment
+  and start Codex from the disposable workspace with a per-session server:
+
+  ```bash
+  codex -c 'mcp_servers.personal_memory_smoke.url="http://127.0.0.1:8000/mcp"' \
+    -c 'mcp_servers.personal_memory_smoke.bearer_token_env_var="PERSONAL_MEMORY_SMOKE_TOKEN"'
+  ```
+
+  See [Codex CLI MCP configuration](https://learn.chatgpt.com/docs/extend/mcp?surface=cli).
+
+- **Antigravity CLI.** In the disposable workspace, add `personal_memory_smoke`
+  to `mcpServers` in a private `.agents/mcp_config.json`. Set `serverUrl` to
+  `http://127.0.0.1:8000/mcp` and set the `Authorization` header under `headers`
+  to `Bearer ` followed by the token. Start `agy` from that workspace. See
+  [Antigravity CLI MCP configuration](https://antigravity.google/docs/mcp?tab=cli).
+
+For each CLI, record the starting `git rev-parse HEAD`. Ask it to use the MCP
+tools to read `smoke.md` and propose appending a line that names the client.
+Have it show the exact diff and wait for your confirmation. Confirm that the
+page and Git HEAD are unchanged at this point. After you approve, have it call
+`apply_update` with the returned proposal ID. Check the page and verify that
+`git rev-list --count <starting-commit>..HEAD` returns `1` and the commit only
+changes `memory/smoke.md`. Repeat with the other CLI and its own line.
+
+Record each client's version, the apply outcome, and the resulting commit hash
+using the live evidence guidance above. Clear the token from the shell and
+discard the disposable workspace and its private client configuration.
+
 ## Automated launcher checks
 
 After `uv sync --locked`, run `uv run pytest tests/mcp/test_server_process.py`.
 These tests start the installed `personal-memory-server` command in a separate
 process and call it through real loopback sockets. They verify missing-token
-rejection, authenticated search/read, the two advertised retrieval tools, bad
+rejection, authenticated search/read, the four advertised tools, bad
 signatures, wrong issuer/audience/owner, expiry, and insufficient scope.
 
 A local HTTPS fixture serves synthetic signing keys. Only the launched test

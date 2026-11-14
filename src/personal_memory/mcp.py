@@ -337,7 +337,7 @@ def create_mcp_server(
         )
 
     def apply_update(proposal_id: str) -> AuthenticatedAppliedResult:
-        """Explicitly approve, apply, and Git-record one exact proposed update."""
+        """Apply and commit a proposed update after the user approves its exact diff."""
         access_token = _require_scope(write_scope)
 
         def record_applied_update(applied: AppliedUpdate) -> None:
