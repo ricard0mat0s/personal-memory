@@ -221,6 +221,18 @@ __marimo__/
 .tools
 
 docs/research
-.agents
+/.agents/*
+!/.agents/skills/
+/.agents/skills/*
+!/.agents/skills/code-review/
+!/.agents/skills/domain-modeling/
+!/.agents/skills/grill-me/
+!/.agents/skills/grill-with-docs/
+!/.agents/skills/grilling/
+!/.agents/skills/implement/
+!/.agents/skills/tdd/
+!/.agents/skills/to-spec/
+!/.agents/skills/to-tickets/
+!/.agents/skills/update-documentation/
 
 /memory

@@ -30,14 +30,15 @@ def assert_startup_rejected(
             environment.pop(name, None)
         else:
             environment[name] = value
-    launcher = Path(sys.executable).with_name("personal-memory-server")
+    launcher_name = "personal-memory-server.exe" if os.name == "nt" else "personal-memory-server"
+    launcher = Path(sys.executable).with_name(launcher_name)
     with (workspace / "startup.log").open("w+") as output:
         process = subprocess.Popen(
             [str(launcher), str(workspace), "--port", str(port), *arguments],
             cwd=workspace, env=environment, stdout=output, stderr=subprocess.STDOUT,
         )
         try:
-            deadline = time.monotonic() + 5
+            deadline = time.monotonic() + 30
             while process.poll() is None and time.monotonic() < deadline:
                 try:
                     with socket.create_connection(("127.0.0.1", port), timeout=0.05):
