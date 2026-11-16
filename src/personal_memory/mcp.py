@@ -50,10 +50,10 @@ DEFAULT_WRITE_SCOPE = "memory:write"
 
 # Clients use these hints to decide when to ask the owner before calling a tool.
 _READ_ONLY = ToolAnnotations(read_only_hint=True, open_world_hint=False)
-_PROPOSES = ToolAnnotations(
+_NON_DESTRUCTIVE_WRITE = ToolAnnotations(
     read_only_hint=False, destructive_hint=False, open_world_hint=False
 )
-_APPLIES = ToolAnnotations(
+_DESTRUCTIVE_WRITE = ToolAnnotations(
     read_only_hint=False, destructive_hint=True, open_world_hint=False
 )
 
@@ -424,8 +424,12 @@ def create_mcp_server(
     if exposed_tools is None or "read_memory" in exposed_tools:
         server.tool(structured_output=True, annotations=_READ_ONLY)(read_memory)
     if exposed_tools is None or "propose_update" in exposed_tools:
-        server.tool(structured_output=True, annotations=_PROPOSES)(propose_update)
+        server.tool(
+            structured_output=True, annotations=_NON_DESTRUCTIVE_WRITE
+        )(propose_update)
     if exposed_tools is None or "apply_update" in exposed_tools:
-        server.tool(structured_output=True, annotations=_APPLIES)(apply_update)
+        server.tool(
+            structured_output=True, annotations=_DESTRUCTIVE_WRITE
+        )(apply_update)
 
     return server

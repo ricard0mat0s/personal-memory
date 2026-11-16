@@ -63,6 +63,17 @@ async def test_advertised_scopes_do_not_make_both_scopes_mandatory(
     server = create_test_server(tmp_path)
 
     async with authenticated_client(server, "read-only-test-token") as client:
-        result = await client.call_tool("search_memory", {"query": "direction"})
+        search = await client.call_tool("search_memory", {"query": "direction"})
+        assert not search.is_error
+        assert search.structured_content is not None
+        read = await client.call_tool(
+            "read_memory",
+            {
+                "request_id": search.structured_content["request_id"],
+                "selection": "direction.md",
+            },
+        )
+        write = await client.call_tool("apply_update", {"proposal_id": "not-issued"})
 
-    assert not result.is_error
+    assert not read.is_error
+    assert write.is_error
