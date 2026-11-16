@@ -11,6 +11,6 @@ Memory Clients (ChatGPT Work and Codex) authenticate to the Authorized Connector
 ## Consequences
 
 - The Auth0 API Identifier must equal the public MCP resource URL (`AUTH0_AUDIENCE == MCP_RESOURCE_URL`) because clients send `resource`, mapped to `audience` by Auth0's Resource Parameter Compatibility Profile. This requires a stable hostname, served for now by an HTTPS tunnel to the owner's machine.
-- The server advertises `memory:read` and `memory:write` as supported scopes; Auth0 RBAC limits granted scopes to permissions assigned to the owner.
+- The server advertises `memory:read` and `memory:write` as supported OAuth scopes (distinct from a Memory Scope); Auth0 RBAC limits granted scopes to permissions assigned to the owner.
 - With frictionless login, `apply_update` remains Explicit Approval; it is annotated as destructive so clients confirm with the owner before calling it.
 - The Postman M2M flow remains only as an optional smoke test.

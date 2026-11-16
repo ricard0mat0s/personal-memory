@@ -39,4 +39,5 @@ This is a single-context repository using `CONTEXT.md` and `docs/adr/`. See `doc
 - Development lifecycle: `docs/agents/development-workflow.md`.
 - GitHub operations and issue eligibility: `docs/agents/issue-tracker.md`.
 - Label meanings: `docs/agents/triage-labels.md`.
-- Auth0 setup and live integration verification: `docs/auth0-postman.md`.
+- Connecting ChatGPT and Codex (Auth0 tenant, tunnel, browser login): `docs/connect-memory-clients.md`.
+- Optional Auth0 M2M smoke test with Postman: `docs/auth0-postman.md`.
