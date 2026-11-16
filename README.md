@@ -155,5 +155,9 @@ uv sync --locked
 uv run personal-memory-server /path/to/disposable-workspace
 ```
 
-See [Auth0 and Postman](docs/auth0-postman.md) for dashboard setup, configuration,
-and an end-to-end Postman test. The server does not need your client secret.
+ChatGPT and Codex connect with a one-time browser login as the allowed Auth0
+user, then refresh their own tokens; no credentials or tokens are copied by hand.
+The server advertises `memory:read` and `memory:write` in its resource metadata.
+See [Connect ChatGPT and Codex](docs/connect-memory-clients.md) for Auth0 and tunnel
+setup. [Auth0 and Postman](docs/auth0-postman.md) is an optional smoke test using a
+machine-to-machine token. The server does not need your client secret.

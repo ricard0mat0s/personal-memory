@@ -1,5 +1,9 @@
 # Auth0 and Postman
 
+This guide is an optional smoke test that authenticates a machine-to-machine
+application. To connect ChatGPT or Codex with a browser login instead, follow
+[Connect ChatGPT and Codex](connect-memory-clients.md).
+
 Auth0 issues a signed access token. Postman sends it as a bearer token to the
 MCP server. The server retrieves Auth0's public signing keys, checks the
 signature, issuer, audience, expiration, and allowed subject, then requires
