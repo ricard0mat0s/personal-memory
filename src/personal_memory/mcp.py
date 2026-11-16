@@ -17,6 +17,7 @@ from mcp.server.auth.provider import AccessToken, TokenVerifier, principal_compo
 from mcp.server.auth.routes import create_protected_resource_routes
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.mcpserver.exceptions import ToolError
+from mcp.types import ToolAnnotations
 from pydantic import AnyHttpUrl, BaseModel, ConfigDict
 from starlette.applications import Starlette
 from starlette.routing import Route
@@ -46,6 +47,15 @@ DEFAULT_MAX_PENDING_PROPOSALS = 128
 DEFAULT_PROPOSAL_TTL_SECONDS = 15 * 60
 DEFAULT_READ_SCOPE = "memory:read"
 DEFAULT_WRITE_SCOPE = "memory:write"
+
+# Clients use these hints to decide when to ask the owner before calling a tool.
+_READ_ONLY = ToolAnnotations(read_only_hint=True, open_world_hint=False)
+_PROPOSES = ToolAnnotations(
+    read_only_hint=False, destructive_hint=False, open_world_hint=False
+)
+_APPLIES = ToolAnnotations(
+    read_only_hint=False, destructive_hint=True, open_world_hint=False
+)
 
 
 class McpSearchResult(BaseModel):
@@ -410,12 +420,12 @@ def create_mcp_server(
         )
 
     if exposed_tools is None or "search_memory" in exposed_tools:
-        server.tool(structured_output=True)(search_memory)
+        server.tool(structured_output=True, annotations=_READ_ONLY)(search_memory)
     if exposed_tools is None or "read_memory" in exposed_tools:
-        server.tool(structured_output=True)(read_memory)
+        server.tool(structured_output=True, annotations=_READ_ONLY)(read_memory)
     if exposed_tools is None or "propose_update" in exposed_tools:
-        server.tool(structured_output=True)(propose_update)
+        server.tool(structured_output=True, annotations=_PROPOSES)(propose_update)
     if exposed_tools is None or "apply_update" in exposed_tools:
-        server.tool(structured_output=True)(apply_update)
+        server.tool(structured_output=True, annotations=_APPLIES)(apply_update)
 
     return server
