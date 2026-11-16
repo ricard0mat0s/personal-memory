@@ -2,6 +2,7 @@ from pathlib import Path
 
 import httpx2
 import pytest
+from mcp.types import TextContent
 
 from personal_memory.mcp import create_mcp_server
 
@@ -73,7 +74,15 @@ async def test_advertised_scopes_do_not_make_both_scopes_mandatory(
                 "selection": "direction.md",
             },
         )
-        write = await client.call_tool("apply_update", {"proposal_id": "not-issued"})
+        writes = [
+            await client.call_tool(
+                "propose_update", {"page_id": "direction.md", "markdown": "x"}
+            ),
+            await client.call_tool("apply_update", {"proposal_id": "not-issued"}),
+        ]
 
     assert not read.is_error
-    assert write.is_error
+    for write in writes:
+        assert write.is_error
+        assert isinstance(write.content[0], TextContent)
+        assert "memory:write" in write.content[0].text
