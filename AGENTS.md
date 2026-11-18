@@ -4,7 +4,7 @@ This project works as my own memory but in another place, I will be able to do s
 
 Basicaly what I really want with this project is a simple way to retrieve and update information in a file system that every AI agent can use, this way I don't have to deal just with the memory that AI stores.
 
-Details about software architecture and design can be found in the [ARCHITECTURE.md](ARCHITECTURE.md) file.
+Details about software architecture and design can be found in the [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) file.
 
 We're actually building the mcp server that will receive requests and do the correct thing, like read for an file or make changes to it
 
@@ -29,13 +29,13 @@ Issues are tracked in this repository's GitHub Issues. See `docs/agents/issue-tr
 
 ### Domain docs
 
-This is a single-context repository using `CONTEXT.md` and `docs/adr/`. See `docs/agents/domain.md`.
+This is a single-context repository using `docs/CONTEXT.md` and `docs/adr/`. See `docs/agents/domain.md`.
 
 ## Documentation map
 
 - Public behavior, installation, and local verification commands: `README.md`.
-- Architecture and module boundaries: `ARCHITECTURE.md`.
-- Domain vocabulary and decisions: `CONTEXT.md` and `docs/adr/`.
+- Architecture and module boundaries: `docs/ARCHITECTURE.md`.
+- Domain vocabulary and decisions: `docs/CONTEXT.md` and `docs/adr/`.
 - Development lifecycle: `docs/agents/development-workflow.md`.
 - GitHub operations and issue eligibility: `docs/agents/issue-tracker.md`.
 - Label meanings: `docs/agents/triage-labels.md`.

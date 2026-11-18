@@ -9,8 +9,8 @@ Versioning, releases, and deployment are outside this workflow.
 ## Discovery and approval
 
 Use `/grill-me` for requirements discovery or `/grill-with-docs` when domain
-terms or architectural decisions also need attention. Read `CONTEXT.md`,
-`ARCHITECTURE.md`, and relevant ADRs before designing changes.
+terms or architectural decisions also need attention. Read `docs/CONTEXT.md`,
+`docs/ARCHITECTURE.md`, and relevant ADRs before designing changes.
 
 Small work can be a standalone issue. For a larger feature, use `/to-spec` to
 publish a parent spec, then `/to-tickets` to draft independently verifiable

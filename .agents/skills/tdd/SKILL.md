@@ -7,7 +7,7 @@ description: Test-driven development. Use when the user wants to build features 
 
 TDD is the red → green loop. This skill is the reference that makes that loop produce tests worth keeping: what a good test is, where tests go, the anti-patterns, and the rules of the loop. Every section applies on every cycle: consult them before and during the loop, not after.
 
-When exploring the codebase, read `CONTEXT.md` (if it exists) so test names and interface vocabulary match the project's domain language, and respect ADRs in the area you're touching.
+When exploring the codebase, read `docs/CONTEXT.md` (if it exists) so test names and interface vocabulary match the project's domain language, and respect ADRs in the area you're touching.
 
 ## What a good test is
 
@@ -23,7 +23,7 @@ A **seam** is the public boundary you test at: the interface where you observe b
 
 When approval is missing, ask: "What's the public interface, and which seams should we test?"
 
-When the interface or testing boundary is itself in question, read `ARCHITECTURE.md`, `CONTEXT.md`, and relevant ADRs and resolve it with the owner before testing through a new boundary. Prefer existing public interfaces and temporary filesystem workspaces; do not add speculative repository indirection.
+When the interface or testing boundary is itself in question, read `docs/ARCHITECTURE.md`, `docs/CONTEXT.md`, and relevant ADRs and resolve it with the owner before testing through a new boundary. Prefer existing public interfaces and temporary filesystem workspaces; do not add speculative repository indirection.
 
 Features and bug fixes default to this test-first loop. Refactors use existing coverage and add tests for uncovered behavior. Documentation and workflow changes use appropriate validation rather than tests that mirror their wording.
 

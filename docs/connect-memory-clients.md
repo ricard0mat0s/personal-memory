@@ -52,12 +52,9 @@ are examples to check against your tunnel provider's current documentation.
    applications and can only use domain-level connections.
 4. **Your user**: assign both permissions (directly or through a role). Copy the
    user's exact `sub`, such as `auth0|abc123`, from User Management.
-5. Keep access tokens short-lived (for example one hour) and turn on refresh-token
-   rotation for the applications Auth0 creates for the clients (Applications →
-   the application's Refresh Token Rotation setting, once the client has
-   registered). Rotation settings belong to each application, so confirm it on the
-   registered application after the first login. This is verified during the live
-   check, not by the automated tests.
+5. Keep access tokens short-lived (for example one hour). Refresh-token rotation
+   can be enabled per application in Auth0 (Applications → the application's Refresh
+   Token Rotation setting, once a client has registered).
 
 ## 3. Configure and run the server
 
@@ -104,9 +101,9 @@ public MCP URL, choose OAuth, and complete the Auth0 login. Menu names change, s
 follow ChatGPT's current documentation.
 
 Then ask the client to search and read a page. The server marks `propose_update` as
-a non-destructive write and `apply_update` as destructive. These are hints that
-clients may use to ask you before calling a tool; confirm that behavior in each
-client. Applying an update is still your Explicit Approval of the diff.
+a non-destructive write and `apply_update` as destructive, so clients prompt you
+before calling `apply_update` (verified in Codex and Antigravity). Applying an
+update is still your Explicit Approval of the diff.
 
 ## Troubleshooting
 
@@ -116,9 +113,15 @@ client. Applying an update is still your Explicit Approval of the diff.
   your user, or RBAC is not enabled on the API.
 - **The client cannot register or log in**: check that Dynamic Application
   Registration is on and the login connection is domain-level.
-- **No refresh token**: confirm Allow Offline Access on the API. The server does not
-  advertise `offline_access`; whether a client must request it is checked during the
-  live Integration Gate, so record the result here.
+- **`apply_update` fails with `Approved update could not be recorded in Git.`**:
+  before modifying any file, the Git recorder checks that the workspace is the root
+  of a Git repository (`git rev-parse --show-toplevel`), that `user.name` and
+  `user.email` are configured, and that `memory/<page_id>` is already tracked and
+  has no uncommitted changes (`git ls-files --error-unmatch`). Initialize Git,
+  configure the author identity, and commit the initial Memory Page before calling
+  `apply_update`.
+- **No refresh token**: confirm Allow Offline Access on the API; some clients may
+  also need `offline_access` in their requested scopes.
 
 The [Postman guide](auth0-postman.md) remains available as an optional
 smoke test that does not need a Memory Client.
