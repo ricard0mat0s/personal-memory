@@ -1,4 +1,8 @@
-# Auth0 and Postman
+# Optional: Auth0 and Postman smoke test
+
+This guide is an optional smoke test that authenticates a machine-to-machine
+application. To connect ChatGPT or Codex with a browser login instead, follow
+[Connect ChatGPT and Codex](connect-memory-clients.md).
 
 Auth0 issues a signed access token. Postman sends it as a bearer token to the
 MCP server. The server retrieves Auth0's public signing keys, checks the
@@ -23,7 +27,8 @@ Profile is needed for clients that send `resource` rather than `audience`.
 
 ## Run the server
 
-Copy `.env.example` to `.env` and replace its placeholders:
+Copy `.env.example` to `.env` and replace its placeholders with these values for
+the local M2M smoke test:
 
 ```dotenv
 AUTH0_ISSUER=https://YOUR_TENANT.us.auth0.com/
@@ -74,7 +79,9 @@ the automatic URL derived from the bind address and port). For wildcard bind
 addresses such as `0.0.0.0`, set `MCP_RESOURCE_URL` to the actual client-facing
 address. Host and Origin checks accept that configured resource origin.
 For hosted access the resource URL must be the external
-MCP URL, while the audience must remain your Auth0 API Identifier.
+MCP URL. For ChatGPT and Codex browser login the audience must equal it, as
+[Connect ChatGPT and Codex](connect-memory-clients.md) describes; for this M2M test
+the audience is simply your Auth0 API Identifier.
 
 The launcher exposes `search_memory`, `read_memory`, `propose_update`, and
 `apply_update`. A read-only token can list the tools and call the retrieval

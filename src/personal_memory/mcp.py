@@ -1,7 +1,7 @@
 """Authenticated MCP adapter for the Personal Memory workspace."""
 
 from collections import OrderedDict
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from _thread import LockType
@@ -9,14 +9,18 @@ from pathlib import Path
 from secrets import token_urlsafe
 from threading import Lock
 from time import monotonic
-from typing import Generic, TypeVar
+from typing import Any, Generic, TypeVar
 
 from mcp.server import MCPServer
 from mcp.server.auth.middleware.auth_context import get_access_token
 from mcp.server.auth.provider import AccessToken, TokenVerifier, principal_components
+from mcp.server.auth.routes import create_protected_resource_routes
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.mcpserver.exceptions import ToolError
+from mcp.types import ToolAnnotations
 from pydantic import AnyHttpUrl, BaseModel, ConfigDict
+from starlette.applications import Starlette
+from starlette.routing import Route
 
 from personal_memory._git_recording import (
     GitRecordingError,
@@ -43,6 +47,15 @@ DEFAULT_MAX_PENDING_PROPOSALS = 128
 DEFAULT_PROPOSAL_TTL_SECONDS = 15 * 60
 DEFAULT_READ_SCOPE = "memory:read"
 DEFAULT_WRITE_SCOPE = "memory:write"
+
+# Clients use these hints to decide when to ask the owner before calling a tool.
+_READ_ONLY = ToolAnnotations(read_only_hint=True, open_world_hint=False)
+_NON_DESTRUCTIVE_WRITE = ToolAnnotations(
+    read_only_hint=False, destructive_hint=False, open_world_hint=False
+)
+_DESTRUCTIVE_WRITE = ToolAnnotations(
+    read_only_hint=False, destructive_hint=True, open_world_hint=False
+)
 
 
 class McpSearchResult(BaseModel):
@@ -219,6 +232,46 @@ def _require_scope(scope: str) -> AccessToken:
     return access_token
 
 
+class _ScopeAdvertisingServer(MCPServer):
+    """MCPServer whose resource metadata advertises scopes it does not require.
+
+    The SDK derives the metadata's ``scopes_supported`` from
+    ``AuthSettings.required_scopes``, which the transport also enforces on every
+    request. Each tool checks its own scope, so a read-only token must still be
+    able to connect; only the advertisement is replaced here.
+    """
+
+    def __init__(
+        self,
+        *args: Any,
+        advertised_scopes: Sequence[str],
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        self._advertised_scopes = list(advertised_scopes)
+
+    def streamable_http_app(  # type: ignore[override]
+        self, *args: Any, **kwargs: Any
+    ) -> Starlette:
+        app = super().streamable_http_app(*args, **kwargs)
+        auth = self.settings.auth
+        if auth is None or auth.resource_server_url is None:
+            return app
+        replacements = {
+            route.path: route
+            for route in create_protected_resource_routes(
+                resource_url=auth.resource_server_url,
+                authorization_servers=[auth.issuer_url],
+                scopes_supported=self._advertised_scopes,
+            )
+        }
+        routes = app.router.routes
+        for index, route in enumerate(routes):
+            if isinstance(route, Route) and route.path in replacements:
+                routes[index] = replacements.pop(route.path)
+        return app
+
+
 def create_mcp_server(
     workspace_root: str | Path,
     *,
@@ -276,8 +329,9 @@ def create_mcp_server(
         ),
     )
     recorder = update_recorder or GitUpdateRecorder(workspace_root)
-    server = MCPServer(
+    server = _ScopeAdvertisingServer(
         "Personal Memory",
+        advertised_scopes=configured_scopes,
         token_verifier=token_verifier,
         auth=AuthSettings(
             issuer_url=AnyHttpUrl(issuer_url),
@@ -366,12 +420,16 @@ def create_mcp_server(
         )
 
     if exposed_tools is None or "search_memory" in exposed_tools:
-        server.tool(structured_output=True)(search_memory)
+        server.tool(structured_output=True, annotations=_READ_ONLY)(search_memory)
     if exposed_tools is None or "read_memory" in exposed_tools:
-        server.tool(structured_output=True)(read_memory)
+        server.tool(structured_output=True, annotations=_READ_ONLY)(read_memory)
     if exposed_tools is None or "propose_update" in exposed_tools:
-        server.tool(structured_output=True)(propose_update)
+        server.tool(
+            structured_output=True, annotations=_NON_DESTRUCTIVE_WRITE
+        )(propose_update)
     if exposed_tools is None or "apply_update" in exposed_tools:
-        server.tool(structured_output=True)(apply_update)
+        server.tool(
+            structured_output=True, annotations=_DESTRUCTIVE_WRITE
+        )(apply_update)
 
     return server
