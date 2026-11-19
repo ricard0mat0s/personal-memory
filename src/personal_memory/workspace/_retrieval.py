@@ -1,11 +1,13 @@
-"""Private deterministic retrieval rules and public result values."""
+"""Private deterministic retrieval rules, filtering, and public result values."""
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from hashlib import sha256
 import re
 import unicodedata
 
-from personal_memory._markdown import MemoryPage
+from personal_memory.workspace._errors import MemoryRetrievalError
+from personal_memory.workspace._markdown import PERMITTED_MEMORY_SCOPES, MemoryPage
 
 
 _FIELD_WEIGHTS = {
@@ -236,3 +238,142 @@ def count_words(text: str) -> int:
 
 def page_version(page: MemoryPage) -> str:
     return sha256(page.markdown.encode("utf-8")).hexdigest()
+
+
+def _validate_search_request(request: RetrievalRequest) -> frozenset[str]:
+    if not isinstance(request, RetrievalRequest):
+        raise MemoryRetrievalError("request must be a RetrievalRequest.")
+    if not isinstance(request.query, str) or not request.query.strip():
+        raise MemoryRetrievalError("Retrieval query must be a non-empty string.")
+    if request.scopes is not None:
+        if (
+            not isinstance(request.scopes, tuple)
+            or not request.scopes
+            or any(
+                not isinstance(scope, str)
+                or scope not in PERMITTED_MEMORY_SCOPES
+                for scope in request.scopes
+            )
+        ):
+            raise MemoryRetrievalError(
+                "Retrieval scopes must contain permitted Memory Scopes."
+            )
+    query_terms = normalized_terms(request.query)
+    if not query_terms:
+        raise MemoryRetrievalError(
+            "Retrieval query must contain at least one text term."
+        )
+    return query_terms
+
+
+def _matches_filters(page: MemoryPage, request: RetrievalRequest) -> bool:
+    if request.scopes is not None and page.scope not in request.scopes:
+        return False
+    return True
+
+
+def search_pages(
+    load_pages: Callable[[], tuple[MemoryPage, ...]],
+    request: RetrievalRequest,
+    workspace_token: object,
+) -> tuple[SearchResult, ...]:
+    """Validate, filter, deterministically rank, and admit candidates for one request."""
+    query_terms = _validate_search_request(request)
+    request_state = request._state
+    if not request_state.bind_to(workspace_token):
+        raise MemoryRetrievalError(
+            "Retrieval Request belongs to another workspace."
+        )
+
+    ranked: list[tuple[int, MemoryPage, tuple[str, ...]]] = []
+    for page in load_pages():
+        if not _matches_filters(page, request):
+            continue
+        score, matched_fields = rank_page(page, query_terms)
+        if score:
+            ranked.append((score, page, matched_fields))
+    ranked.sort(
+        key=lambda item: (
+            -item[0],
+            item[1].page_id.casefold(),
+            item[1].page_id,
+        )
+    )
+
+    results: list[SearchResult] = []
+    for _, page, matched_fields in ranked:
+        excerpt = excerpt_for(page, query_terms)
+        if not request_state.admit_excerpt(
+            page.page_id,
+            count_words(excerpt),
+            page_version(page),
+        ):
+            continue
+        results.append(
+            SearchResult(
+                page_id=page.page_id,
+                title=page.title,
+                scope=page.scope,
+                excerpt=excerpt,
+                matched_fields=matched_fields,
+            )
+        )
+        if len(results) >= RETRIEVAL_PAGE_LIMIT:
+            break
+    return tuple(results)
+
+
+def read_candidate_page(
+    load_pages: Callable[[], tuple[MemoryPage, ...]],
+    request: RetrievalRequest,
+    selection: str,
+    workspace_token: object,
+) -> str:
+    """Resolve and charge a complete read for one candidate in this request."""
+    if not isinstance(request, RetrievalRequest):
+        raise MemoryRetrievalError("request must be a RetrievalRequest.")
+    request_state = request._state
+    if not request_state.is_bound_to(workspace_token):
+        raise MemoryRetrievalError(
+            "Retrieval Request does not belong to this workspace."
+        )
+    if not isinstance(selection, str) or not selection.strip():
+        raise MemoryRetrievalError("Memory Page selection must be non-empty.")
+
+    pages = {page.page_id: page for page in load_pages()}
+    candidate_pages = [
+        pages[candidate_id]
+        for candidate_id in request_state.candidate_ids()
+        if candidate_id in pages
+    ]
+    page = (
+        pages.get(selection)
+        if selection in request_state.candidate_ids()
+        else None
+    )
+    if page is None:
+        title_matches = [
+            candidate
+            for candidate in candidate_pages
+            if candidate.title.casefold() == selection.casefold()
+        ]
+        if len(title_matches) > 1:
+            raise MemoryRetrievalError("Memory Page selection is ambiguous.")
+        if len(title_matches) == 1:
+            page = title_matches[0]
+    if page is None:
+        raise MemoryRetrievalError(
+            "Memory Page must be selected from this request's Search Results."
+        )
+    if not _matches_filters(page, request):
+        raise MemoryRetrievalError(
+            "Selected Memory Page is outside the request's scope selection."
+        )
+
+    if not request_state.charge_complete_read(
+        page.page_id,
+        count_words(page.markdown),
+        page_version(page),
+    ):
+        raise MemoryRetrievalError("Retrieval Request word cap is exhausted.")
+    return page.markdown

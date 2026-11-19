@@ -7,9 +7,9 @@ from difflib import unified_diff
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
-from personal_memory._errors import MemoryApplicationError
-from personal_memory._markdown import MemoryPage
-from personal_memory._retrieval import page_version
+from personal_memory.workspace._errors import MemoryApplicationError
+from personal_memory.workspace._markdown import MemoryPage
+from personal_memory.workspace._retrieval import page_version
 
 
 @dataclass(frozen=True, slots=True)

@@ -6,7 +6,7 @@ from typing import cast
 
 import yaml
 
-from personal_memory._errors import MemoryValidationError
+from personal_memory.workspace._errors import MemoryValidationError
 
 
 PERMITTED_MEMORY_SCOPES = frozenset(
