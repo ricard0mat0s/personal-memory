@@ -22,7 +22,7 @@ from pydantic import AnyHttpUrl, BaseModel, ConfigDict
 from starlette.applications import Starlette
 from starlette.routing import Route
 
-from personal_memory._git_recording import (
+from personal_memory.git import (
     GitRecordingError,
     GitUpdateRecorder,
     UpdateRecorder,
