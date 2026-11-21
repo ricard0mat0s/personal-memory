@@ -11,7 +11,7 @@ from mcp.types import CallToolResult, TextContent
 from starlette.types import ASGIApp
 
 from personal_memory.mcp import create_mcp_server
-from personal_memory._git_recording import UpdateRecorder
+from personal_memory.git import UpdateRecorder
 
 
 RESOURCE_SERVER_URL = "http://127.0.0.1:8000/mcp"

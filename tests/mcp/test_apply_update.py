@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 from mcp.types import TextContent
 
-from personal_memory._git_recording import GitRecordingError
+from personal_memory.git import GitRecordingError
 
 from .support import (
     DIRECTION_MARKDOWN,
