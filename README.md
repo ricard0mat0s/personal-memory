@@ -1,163 +1,63 @@
-# personal-memory
+# Personal Memory
 
-Private, Git-backed durable memory for supported AI clients.
+## Introduction
 
-Milestones 1 through 4 provide an offline `MemoryWorkspace` boundary that
-validates synthetic Markdown pages under a supplied workspace's `memory/`
-directory.
-It rejects pages without valid YAML metadata, unsupported memory scopes, raw
-transcripts without the page contract, and related-page paths that escape the
-memory root. Deterministic retrieval searches only validated page titles,
-scopes, related-page paths, and literal Markdown bodies.
+Personal Memory provides a private, Git-backed memory workspace that AI
+clients can read and update through a controlled interface. It solves the
+problem of keeping durable, shared context in files instead of relying only on
+an AI provider's transient memory.
 
-```python
-from personal_memory import ExplicitApproval, MemoryWorkspace, RetrievalRequest
+The project is built with Python 3.12+, Markdown files with YAML frontmatter,
+and a local filesystem-backed `MemoryWorkspace`. An authenticated MCP server
+exposes the workspace over Streamable HTTP. Auth0 access tokens protect the
+server, and Git records approved memory updates.
 
-workspace = MemoryWorkspace("path/to/canonical-repository")
-request = RetrievalRequest(
-    "project evaluation",
-    scopes=("individual_project",),
-)
-results = workspace.search_memory(request)
-if results:
-    current_markdown = workspace.read_memory(request, results[0].page_id)
-```
+## Quick start
 
-One `RetrievalRequest` owns the cap shared by all retrieval work for one user
-prompt: at most three distinct pages and approximately 1,500 words. Search
-results have stable repository-relative page IDs, short relevant excerpts, and
-no public ranking score. The complete page that crosses the remaining word
-budget is returned without truncation; further new reads are then refused.
+Install Python 3.12 or later and [uv](https://docs.astral.sh/uv/), then install
+the locked dependencies:
 
-`propose_update` is a no-write review step. Give it an existing page's exact
-repository-relative ID and complete replacement Markdown; it returns a stable
-version token and an exact unified diff for deliberate approval later.
-
-```python
-proposal = workspace.propose_update(
-    "projects/harpia.md",
-    replacement_markdown,
-)
-print(proposal.version_token)
-print(proposal.diff)
-```
-
-After a person or authorized caller approves that exact diff, record and apply
-the approval through the same workspace:
-
-```python
-# Display and approve proposal.diff before constructing this value.
-approval = ExplicitApproval.for_proposal(proposal)
-result = workspace.apply_update(proposal, approval)
-```
-
-`apply_update` reloads Current Memory, rejects mismatched, stale, foreign, or
-already-used proposals, and atomically replaces only the target page. It does
-not create Git history or authenticate the human approval; those
-responsibilities remain outside the offline module.
-
-## Development
-
-Requires Python 3.12 or later and [uv](https://docs.astral.sh/uv/).
-
-```powershell
+```bash
 uv sync --locked
+```
+
+For local development, run the tests and type checker:
+
+```bash
 uv run --no-sync pytest
 uv run --no-sync mypy
 ```
 
-The test suite creates temporary synthetic workspaces. It does not read real
-personal memory or require GitHub, a live OAuth provider, or external network
-access. Launcher integration tests use loopback HTTP/HTTPS sockets and synthetic
-signing keys.
-
-GitHub Actions runs the full test suite on Ubuntu and Windows with Python 3.12
-and source typechecking on Ubuntu. Use `uv sync --locked --python 3.12` to
-reproduce the CI Python version locally; other Python versions are outside
-the initial CI matrix.
-
-The [development workflow](docs/agents/development-workflow.md) explains issue
-approval, test-first implementation, independent reviews, pull requests, and
-merge authorization. Start with `/implement <issue>` for a named approved
-issue or ask the agent to work on the backlog. Each run stops at a PR for
-human review. The required skills are tracked in `.agents/skills/`.
-
-### Authenticated retrieval smoke test
-
-Milestone 5's first two iterations expose `search_memory` and `read_memory`
-through authenticated Streamable HTTP. To exercise the real MCP and
-authorization path against local Markdown files without opening a port, point
-the smoke script at a disposable workspace that contains a `memory/` directory:
-
-```powershell
-uv run python scripts/smoke_authenticated_retrieval.py `
-  C:\path\to\disposable-workspace `
-  "project direction" `
-  --scope individual_project `
-  --read-first
-```
-
-The script uses a synthetic token inside one process. It reads and validates the
-real files in the supplied workspace, prints the structured Search Results and
-opaque request ID, and, with `--read-first`, reads and prints the complete current
-Markdown for the first result through that same bounded request. It performs no
-writes and does not contact an identity provider or other network service. Do
-not point initial experiments at the canonical personal-memory repository; copy
-a few non-sensitive pages into a disposable workspace first.
-
-The MCP adapter requires `memory:read` for `search_memory` and `read_memory`.
-It requires the separate `memory:write` scope for `propose_update` and
-`apply_update`; a read-only token cannot create proposal state or invoke an
-update. Resource and token validation still occur before any tool-level scope
-check. Configured read and write scope names must be non-empty and distinct.
-
-### Authenticated proposals
-
-The MCP adapter also exposes `propose_update` through the same authenticated
-Streamable HTTP boundary. The caller supplies an existing page's exact ID and
-complete replacement Markdown. Success returns an opaque `proposal_id` together
-with the exact target page, current version token, and unified diff that must be
-shown for later explicit approval.
-
-Creating a proposal does not change Current Memory or Git history. Pending
-proposals are tied to the authenticated principal and retained only in bounded
-process memory: at most 128 entries for 15 minutes by default. They are lost on
-restart and use a state registry separate from Retrieval Requests.
-
-### Authenticated approval, application, and recording
-
-Calling MCP `apply_update` with that exact `proposal_id` is the authorized
-caller's explicit approval. The adapter resolves only a pending proposal owned
-by that authenticated principal, creates the offline `ExplicitApproval`, and
-delegates the stale, foreign, and single-use checks plus atomic replacement to
-the same `MemoryWorkspace` that created the proposal. A successful response
-returns the applied page's old and new version tokens.
-
-Before changing Current Memory, the recorder requires the supplied workspace to
-be the Git worktree root, a configured Git author, and a tracked, clean target
-page. It then commits only that page with the subject
-`memory: update <page_id>`; unrelated staged or working-tree changes are not
-included. If Git recording fails, the workspace atomically restores Current
-Memory and keeps the proposal available for the same authenticated caller to
-retry after inspecting Git status. If restoration itself fails, the tool reports
-that recovery failure for manual intervention.
-
-### Run with Auth0
-
-The HTTP launcher exposes all four tools, validates Auth0 access tokens using
-the tenant's rotating public signing keys, and restricts access to explicitly
-allowed subjects.
-Copy `.env.example` to `.env`, fill in your issuer, API audience, and allowed
-subject, then run:
+To run the authenticated MCP server, copy the example environment file,
+configure the Auth0 issuer, audience, and allowed subject, then provide a
+workspace containing a `memory/` directory:
 
 ```bash
-uv sync --locked
-uv run personal-memory-server /path/to/disposable-workspace
+cp .env.example .env
+uv run personal-memory-server /path/to/workspace
 ```
 
-ChatGPT and Codex connect with a one-time browser login as the allowed Auth0
-user, then refresh their own tokens; no credentials or tokens are copied by hand.
-The server advertises `memory:read` and `memory:write` in its resource metadata.
-See [Connect ChatGPT and Codex](docs/connect-memory-clients.md) for Auth0 and tunnel
-setup. [Auth0 and Postman](docs/auth0-postman.md) is an optional smoke test using a
-machine-to-machine token. The server does not need your client secret.
+The server exposes `search_memory`, `read_memory`, `propose_update`, and
+`apply_update`. Read operations require `memory:read`; update operations
+require `memory:write`. See [Connect ChatGPT and Codex](docs/connect-memory-clients.md)
+for client and tunnel setup. For an offline example that does not require
+Auth0 or a running server, see
+`scripts/smoke_authenticated_retrieval.py`.
+
+## Architecture
+
+The project has three main layers:
+
+- **Memory workspace:** `MemoryWorkspace` loads and validates Markdown pages
+  under `<workspace>/memory`, performs deterministic scoped retrieval, enforces
+  request word/page budgets, and creates or applies exact update proposals.
+- **MCP adapter:** `personal_memory.mcp` translates authenticated MCP tool
+  calls into workspace operations. It keeps retrieval requests and update
+  proposals bounded, short-lived, and tied to the authenticated principal.
+- **Server and recording boundary:** `personal_memory.server` validates Auth0
+  JWTs and runs the Streamable HTTP transport. Approved updates are atomically
+  applied and recorded as Git commits for the target page only.
+
+Parsing, validation, ranking, budgeting, and diff generation remain private
+workspace implementation details. The architecture and module boundaries are
+described in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
