@@ -234,19 +234,10 @@ class MemoryWorkspace:
             replacement_markdown,
             self._memory_root,
         )
-        expected_proposal = propose_replacement(current_page, replacement_page)
-        if (
-            expected_proposal.page_id,
-            expected_proposal.version_token,
-            expected_proposal.diff,
-        ) != (
-            proposal.page_id,
-            proposal.version_token,
-            proposal.diff,
-        ):
-            raise MemoryApplicationError(
-                "Proposed Update does not match its replacement."
-            )
+        self._require_matching_proposal(
+            proposal,
+            propose_replacement(current_page, replacement_page),
+        )
 
         target = self._memory_root / current_page.page_id
         replace_atomically(
@@ -260,27 +251,17 @@ class MemoryWorkspace:
             previous_version_token=current_version,
             version_token=page_version(replacement_page),
         )
-        if after_application is not None:
-            try:
-                after_application(applied)
-            except Exception as error:
-                try:
-                    replace_atomically(
-                        target,
-                        current_page.markdown,
-                        replacement_page.markdown,
-                        self._memory_root,
-                    )
-                except MemoryApplicationError as rollback_error:
-                    raise MemoryApplicationError(
-                        "Approved update could not be recorded or rolled back."
-                    ) from rollback_error
-                raise MemoryApplicationError(
-                    "Approved update could not be recorded; Current Memory was restored."
-                ) from error
-        self._pending_updates.pop(id(proposal))
-        self._applied_updates.append(proposal)
-        return applied
+        return self._finalize_application(
+            proposal,
+            applied,
+            after_application,
+            rollback=lambda: replace_atomically(
+                target,
+                current_page.markdown,
+                replacement_page.markdown,
+                self._memory_root,
+            ),
+        )
 
     def _apply_creation(
         self,
@@ -299,7 +280,31 @@ class MemoryWorkspace:
             new_markdown,
             self._memory_root,
         )
-        expected_proposal = propose_creation(new_page)
+        self._require_matching_proposal(proposal, propose_creation(new_page))
+
+        target = self._memory_root / new_page.page_id
+        create_atomically(target, new_page.markdown, self._memory_root)
+        applied = AppliedUpdate(
+            page_id=new_page.page_id,
+            previous_version_token=None,
+            version_token=page_version(new_page),
+        )
+        return self._finalize_application(
+            proposal,
+            applied,
+            after_application,
+            rollback=lambda: remove_created_target(
+                target,
+                new_page.markdown,
+                self._memory_root,
+            ),
+        )
+
+    @staticmethod
+    def _require_matching_proposal(
+        proposal: ProposedUpdate,
+        expected_proposal: ProposedUpdate,
+    ) -> None:
         if (
             expected_proposal.page_id,
             expected_proposal.version_token,
@@ -313,23 +318,20 @@ class MemoryWorkspace:
                 "Proposed Update does not match its replacement."
             )
 
-        target = self._memory_root / new_page.page_id
-        create_atomically(target, new_page.markdown, self._memory_root)
-        applied = AppliedUpdate(
-            page_id=new_page.page_id,
-            previous_version_token=None,
-            version_token=page_version(new_page),
-        )
+    def _finalize_application(
+        self,
+        proposal: ProposedUpdate,
+        applied: AppliedUpdate,
+        after_application: Callable[[AppliedUpdate], None] | None,
+        *,
+        rollback: Callable[[], None],
+    ) -> AppliedUpdate:
         if after_application is not None:
             try:
                 after_application(applied)
             except Exception as error:
                 try:
-                    remove_created_target(
-                        target,
-                        new_page.markdown,
-                        self._memory_root,
-                    )
+                    rollback()
                 except MemoryApplicationError as rollback_error:
                     raise MemoryApplicationError(
                         "Approved update could not be recorded or rolled back."

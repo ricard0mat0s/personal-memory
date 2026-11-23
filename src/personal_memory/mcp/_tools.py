@@ -1,5 +1,6 @@
 """MCP tool handlers and registration for Personal Memory."""
 
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from mcp.server import MCPServer
@@ -23,6 +24,8 @@ from personal_memory.workspace import (
     MemoryProposalError,
     MemoryRetrievalError,
     MemoryValidationError,
+    MemoryWorkspace,
+    ProposedUpdate,
     RetrievalRequest,
 )
 
@@ -107,12 +110,13 @@ def register_tools(
             raise ToolError(str(error)) from error
         return AuthenticatedReadResult(markdown=markdown)
 
-    def propose_create(page_id: str, markdown: str) -> AuthenticatedProposalResult:
-        """Propose creating a new top-level Memory Page without changing Current Memory."""
+    def _issue_proposal(
+        propose: Callable[[MemoryWorkspace], ProposedUpdate],
+    ) -> AuthenticatedProposalResult:
         access_token = require_scope(runtime.write_scope)
         proposal_workspace = runtime.workspace.fresh()
         try:
-            proposal = proposal_workspace.propose_create(page_id, markdown)
+            proposal = propose(proposal_workspace)
         except (MemoryProposalError, MemoryValidationError) as error:
             raise ToolError(str(error)) from error
         proposal_id = runtime.proposals.issue(
@@ -126,23 +130,16 @@ def register_tools(
             diff=proposal.diff,
         )
 
+    def propose_create(page_id: str, markdown: str) -> AuthenticatedProposalResult:
+        """Propose creating a new top-level Memory Page without changing Current Memory."""
+        return _issue_proposal(
+            lambda workspace: workspace.propose_create(page_id, markdown)
+        )
+
     def propose_update(page_id: str, markdown: str) -> AuthenticatedProposalResult:
         """Propose complete replacement Markdown without changing Current Memory."""
-        access_token = require_scope(runtime.write_scope)
-        proposal_workspace = runtime.workspace.fresh()
-        try:
-            proposal = proposal_workspace.propose_update(page_id, markdown)
-        except (MemoryProposalError, MemoryValidationError) as error:
-            raise ToolError(str(error)) from error
-        proposal_id = runtime.proposals.issue(
-            PendingProposal(workspace=proposal_workspace, proposal=proposal),
-            access_token,
-        )
-        return AuthenticatedProposalResult(
-            proposal_id=proposal_id,
-            page_id=proposal.page_id,
-            version_token=proposal.version_token,
-            diff=proposal.diff,
+        return _issue_proposal(
+            lambda workspace: workspace.propose_update(page_id, markdown)
         )
 
     def apply_update(proposal_id: str) -> AuthenticatedAppliedResult:
