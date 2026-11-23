@@ -1,6 +1,7 @@
 """Offline workspace boundary for curated personal memory."""
 
 import os
+import re
 from _thread import LockType
 from collections.abc import Callable
 from pathlib import Path
@@ -22,7 +23,10 @@ from personal_memory.workspace._proposals import (
     ExplicitApproval,
     ProposedUpdate,
     approval_matches,
+    create_atomically,
+    propose_creation,
     propose_replacement,
+    remove_created_target,
     replace_atomically,
 )
 from personal_memory.workspace._retrieval import (
@@ -53,6 +57,7 @@ def _reject_scan_error(error: OSError) -> None:
 
 _APPLICATION_LOCKS_GUARD = Lock()
 _APPLICATION_LOCKS: dict[Path, LockType] = {}
+_NEW_PAGE_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]*\.md$", flags=re.ASCII)
 
 
 def _application_lock_for(memory_root: Path) -> LockType:
@@ -113,6 +118,41 @@ class MemoryWorkspace:
             self._load_pages, request, selection, self._request_token
         )
 
+    def _target_exists_in_memory_root(self, page_id: str) -> bool:
+        target = self._memory_root / page_id
+        if target.exists() or target.is_symlink() or target.is_junction():
+            return True
+        try:
+            entries = list(self._memory_root.iterdir())
+        except OSError as error:
+            _reject_scan_error(error)
+            return False
+        folded = page_id.lower()
+        return any(entry.name.lower() == folded for entry in entries)
+
+    def propose_create(self, page_id: str, markdown: str) -> ProposedUpdate:
+        """Return a validated, exact creation proposal without writing."""
+        if not isinstance(page_id, str) or not page_id.strip():
+            raise MemoryProposalError("Memory Page target must be non-empty.")
+        if _NEW_PAGE_ID_PATTERN.fullmatch(page_id) is None:
+            raise MemoryProposalError(
+                "Memory Page target must be a top-level lowercase slug ending in .md."
+            )
+        if not isinstance(markdown, str):
+            raise MemoryProposalError("New Memory Page Markdown must be a string.")
+
+        self._load_pages()
+        if self._target_exists_in_memory_root(page_id):
+            raise MemoryProposalError("Memory Page target already exists.")
+
+        new_page = validate_memory_markdown(page_id, markdown, self._memory_root)
+        proposal = propose_creation(new_page)
+        self._pending_updates[id(proposal)] = (
+            proposal,
+            new_page.markdown,
+        )
+        return proposal
+
     def propose_update(self, page_id: str, markdown: str) -> ProposedUpdate:
         """Return a validated, exact replacement proposal without writing."""
         if not isinstance(page_id, str) or not page_id.strip():
@@ -171,6 +211,13 @@ class MemoryWorkspace:
                 "Proposed Update was not issued by the same workspace."
             )
 
+        if proposal.version_token is None:
+            return self._apply_creation(
+                proposal,
+                pending_update[1],
+                after_application,
+            )
+
         pages = {page.page_id: page for page in self._load_pages()}
         current_page = pages.get(proposal.page_id)
         if current_page is None:
@@ -222,6 +269,65 @@ class MemoryWorkspace:
                         target,
                         current_page.markdown,
                         replacement_page.markdown,
+                        self._memory_root,
+                    )
+                except MemoryApplicationError as rollback_error:
+                    raise MemoryApplicationError(
+                        "Approved update could not be recorded or rolled back."
+                    ) from rollback_error
+                raise MemoryApplicationError(
+                    "Approved update could not be recorded; Current Memory was restored."
+                ) from error
+        self._pending_updates.pop(id(proposal))
+        self._applied_updates.append(proposal)
+        return applied
+
+    def _apply_creation(
+        self,
+        proposal: ProposedUpdate,
+        new_markdown: str,
+        after_application: Callable[[AppliedUpdate], None] | None,
+    ) -> AppliedUpdate:
+        self._load_pages()
+        if self._target_exists_in_memory_root(proposal.page_id):
+            raise MemoryApplicationError(
+                "Current Memory changed after this update was proposed."
+            )
+
+        new_page = validate_memory_markdown(
+            proposal.page_id,
+            new_markdown,
+            self._memory_root,
+        )
+        expected_proposal = propose_creation(new_page)
+        if (
+            expected_proposal.page_id,
+            expected_proposal.version_token,
+            expected_proposal.diff,
+        ) != (
+            proposal.page_id,
+            proposal.version_token,
+            proposal.diff,
+        ):
+            raise MemoryApplicationError(
+                "Proposed Update does not match its replacement."
+            )
+
+        target = self._memory_root / new_page.page_id
+        create_atomically(target, new_page.markdown, self._memory_root)
+        applied = AppliedUpdate(
+            page_id=new_page.page_id,
+            previous_version_token=None,
+            version_token=page_version(new_page),
+        )
+        if after_application is not None:
+            try:
+                after_application(applied)
+            except Exception as error:
+                try:
+                    remove_created_target(
+                        target,
+                        new_page.markdown,
                         self._memory_root,
                     )
                 except MemoryApplicationError as rollback_error:

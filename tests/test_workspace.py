@@ -464,6 +464,171 @@ def test_propose_update_uses_the_current_page_version_at_proposal_time(
     assert (tmp_path / "memory" / "direction.md").read_text(encoding="utf-8") == current
 
 
+def test_propose_create_returns_an_exact_diff_without_a_prior_version_or_writing(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "memory").mkdir()
+    new_markdown = """\
+---
+title: New project direction
+scope: individual_project
+related_pages: []
+---
+
+Build the first version.
+"""
+    workspace = MemoryWorkspace(tmp_path)
+
+    proposal = workspace.propose_create("new-topic.md", new_markdown)
+
+    assert proposal == ProposedUpdate(
+        page_id="new-topic.md",
+        version_token=None,
+        diff=(
+            "--- /dev/null\n"
+            "+++ b/memory/new-topic.md\n"
+            "@@ -0,0 +1,7 @@\n"
+            "+---\n"
+            "+title: New project direction\n"
+            "+scope: individual_project\n"
+            "+related_pages: []\n"
+            "+---\n"
+            "+\n"
+            "+Build the first version.\n"
+        ),
+    )
+    assert not (tmp_path / "memory" / "new-topic.md").exists()
+
+
+@pytest.mark.parametrize(
+    ("page_id", "markdown", "message"),
+    [
+        ("", PERMITTED_MEMORY_PAGE.format(memory_scope="individual_project"), "slug|target"),
+        (None, PERMITTED_MEMORY_PAGE.format(memory_scope="individual_project"), "slug|target"),  # type: ignore[list-item]
+        (".md", PERMITTED_MEMORY_PAGE.format(memory_scope="individual_project"), "slug"),
+        (".hidden.md", PERMITTED_MEMORY_PAGE.format(memory_scope="individual_project"), "slug"),
+        ("-leading.md", PERMITTED_MEMORY_PAGE.format(memory_scope="individual_project"), "slug"),
+        ("Upper.md", PERMITTED_MEMORY_PAGE.format(memory_scope="individual_project"), "slug"),
+        ("with space.md", PERMITTED_MEMORY_PAGE.format(memory_scope="individual_project"), "slug"),
+        ("nested/topic.md", PERMITTED_MEMORY_PAGE.format(memory_scope="individual_project"), "slug"),
+        ("nested\\topic.md", PERMITTED_MEMORY_PAGE.format(memory_scope="individual_project"), "slug"),
+        ("../outside.md", PERMITTED_MEMORY_PAGE.format(memory_scope="individual_project"), "slug"),
+        ("topic.txt", PERMITTED_MEMORY_PAGE.format(memory_scope="individual_project"), "slug"),
+        ("direction.md", PERMITTED_MEMORY_PAGE.format(memory_scope="individual_project"), "already exists"),
+        ("existing-copy.md", PERMITTED_MEMORY_PAGE.format(memory_scope="individual_project"), "already exists"),
+        ("new-topic.md", None, "Markdown"),  # type: ignore[list-item]
+    ],
+)
+def test_propose_create_rejects_invalid_slugs_existing_targets_and_non_string_markdown(
+    tmp_path: Path,
+    page_id: str,
+    markdown: str,
+    message: str,
+) -> None:
+    original = PERMITTED_MEMORY_PAGE.format(memory_scope="individual_project")
+    write_memory_page(tmp_path, "direction.md", original)
+    write_memory_page(tmp_path, "Existing-Copy.md", original)
+    workspace = MemoryWorkspace(tmp_path)
+
+    with pytest.raises(MemoryProposalError, match=message):
+        workspace.propose_create(page_id, markdown)
+
+
+def test_propose_create_rejects_missing_memory_directory_and_invalid_frontmatter(
+    tmp_path: Path,
+) -> None:
+    valid_markdown = PERMITTED_MEMORY_PAGE.format(memory_scope="individual_project")
+    memory_dir = tmp_path / "memory"
+    memory_dir.mkdir()
+    workspace = MemoryWorkspace(tmp_path)
+    memory_dir.rmdir()
+
+    with pytest.raises(MemoryValidationError, match="Cannot scan memory directory"):
+        workspace.propose_create("new-topic.md", valid_markdown)
+
+    memory_dir.mkdir()
+    with pytest.raises(MemoryValidationError, match="non-empty title"):
+        workspace.propose_create(
+            "new-topic.md",
+            valid_markdown.replace("title: Project preferences\n", ""),
+        )
+
+
+def test_apply_update_atomically_creates_an_approved_new_page(
+    tmp_path: Path,
+) -> None:
+    existing = PERMITTED_MEMORY_PAGE.format(memory_scope="individual_project")
+    new_markdown = existing.replace("Project preferences", "New project")
+    write_memory_page(tmp_path, "existing.md", existing)
+    workspace = MemoryWorkspace(tmp_path)
+    proposal = workspace.propose_create("new-project.md", new_markdown)
+    approval = ExplicitApproval.for_proposal(proposal)
+
+    result = workspace.apply_update(proposal, approval)
+
+    assert result == AppliedUpdate(
+        page_id="new-project.md",
+        previous_version_token=None,
+        version_token=sha256(new_markdown.encode("utf-8")).hexdigest(),
+    )
+    assert (tmp_path / "memory" / "new-project.md").read_text(
+        encoding="utf-8"
+    ) == new_markdown
+    assert (tmp_path / "memory" / "existing.md").read_text(
+        encoding="utf-8"
+    ) == existing
+
+
+def test_apply_update_refuses_a_creation_proposal_when_the_target_appeared_after_proposal(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "memory").mkdir()
+    proposed = PERMITTED_MEMORY_PAGE.format(memory_scope="individual_project")
+    concurrent = proposed.replace("small, verifiable", "concurrently created")
+    workspace = MemoryWorkspace(tmp_path)
+    proposal = workspace.propose_create("new-project.md", proposed)
+    approval = ExplicitApproval.for_proposal(proposal)
+    write_memory_page(tmp_path, "new-project.md", concurrent)
+
+    with pytest.raises(MemoryApplicationError, match="Current Memory changed|already exists"):
+        workspace.apply_update(proposal, approval)
+
+    assert (tmp_path / "memory" / "new-project.md").read_text(
+        encoding="utf-8"
+    ) == concurrent
+
+
+def test_apply_update_removes_a_created_page_when_after_application_fails(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "memory").mkdir()
+    new_markdown = PERMITTED_MEMORY_PAGE.format(memory_scope="individual_project")
+    workspace = MemoryWorkspace(tmp_path)
+    proposal = workspace.propose_create("new-project.md", new_markdown)
+    approval = ExplicitApproval.for_proposal(proposal)
+    target = tmp_path / "memory" / "new-project.md"
+
+    def fail_recording(applied: AppliedUpdate) -> None:
+        assert target.read_text(encoding="utf-8") == new_markdown
+        assert applied.previous_version_token is None
+        raise RuntimeError("Synthetic recording failure.")
+
+    with pytest.raises(
+        MemoryApplicationError,
+        match="Approved update could not be recorded; Current Memory was restored.",
+    ):
+        workspace.apply_update(
+            proposal,
+            approval,
+            after_application=fail_recording,
+        )
+
+    assert not target.exists()
+    retry_result = workspace.apply_update(proposal, approval)
+    assert retry_result.previous_version_token is None
+    assert target.read_text(encoding="utf-8") == new_markdown
+
+
 def test_apply_update_atomically_replaces_only_its_approved_target(
     tmp_path: Path,
 ) -> None:

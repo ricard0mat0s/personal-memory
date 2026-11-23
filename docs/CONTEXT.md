@@ -61,7 +61,7 @@ _Avoid_: Per-call limit, whole-vault context, unlimited recall
 ## Change Control
 
 **Proposed Update**:
-The exact Markdown diff of an intended memory change, tied to the Memory Page version from which it was produced.
+The exact Markdown diff of an intended memory change, tied to the target Memory Page version from which it was produced (or its absence when creating a new Memory Page).
 _Avoid_: Silent rewrite, unreviewed extraction, automatic capture
 
 **Explicit Approval**:
@@ -69,11 +69,11 @@ The user's deliberate confirmation of one exact Proposed Update. It is specific 
 _Avoid_: Blanket consent, implied consent, background authorization
 
 **Explicit Update**:
-A deliberate, user-requested change to Durable Memory performed only after Explicit Approval of its Proposed Update.
+A deliberate, user-requested creation or modification of Durable Memory performed only after Explicit Approval of its Proposed Update.
 _Avoid_: Silent capture, automatic logging
 
 **Conflict Gate**:
-The refusal to apply an Explicit Update when its target Memory Page no longer matches the version used for its Proposed Update.
+The refusal to apply an Explicit Update when its target Memory Page no longer matches the state used for its Proposed Update.
 _Avoid_: Automatic merge, silent rebase
 
 ## Access

@@ -17,7 +17,7 @@ class ProposedUpdate:
     """An exact replacement diff tied to one Current Memory version."""
 
     page_id: str
-    version_token: str
+    version_token: str | None
     diff: str
 
 
@@ -26,7 +26,7 @@ class ExplicitApproval:
     """Approval bound to the public identity of one exact Proposed Update."""
 
     page_id: str
-    version_token: str
+    version_token: str | None
     diff: str
     _proposal: ProposedUpdate | None = field(
         default=None,
@@ -52,8 +52,25 @@ class AppliedUpdate:
     """Observable result of replacing one Current Memory page."""
 
     page_id: str
-    previous_version_token: str
+    previous_version_token: str | None
     version_token: str
+
+
+def propose_creation(new_page: MemoryPage) -> ProposedUpdate:
+    """Create a deterministic unified diff for a new page without writing."""
+    diff = "".join(
+        unified_diff(
+            [],
+            new_page.markdown.splitlines(keepends=True),
+            fromfile="/dev/null",
+            tofile=f"b/memory/{new_page.page_id}",
+        )
+    )
+    return ProposedUpdate(
+        page_id=new_page.page_id,
+        version_token=None,
+        diff=diff,
+    )
 
 
 def propose_replacement(
@@ -157,3 +174,66 @@ def replace_atomically(
                 temporary_path.unlink(missing_ok=True)
             except OSError:
                 pass
+
+
+def create_atomically(
+    target: Path,
+    markdown: str,
+    memory_root: Path,
+) -> None:
+    """Create a new page exclusively without overwriting any existing entry."""
+    created = False
+    try:
+        _require_permitted_target(target, memory_root)
+        flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY
+        if hasattr(os, "O_BINARY"):
+            flags |= os.O_BINARY
+        fd = os.open(target, flags, 0o666)
+        created = True
+        try:
+            with os.fdopen(fd, "wb") as handle:
+                handle.write(markdown.encode("utf-8"))
+                handle.flush()
+                os.fsync(handle.fileno())
+        except BaseException:
+            try:
+                target.unlink(missing_ok=True)
+            except OSError:
+                pass
+            raise
+    except FileExistsError as error:
+        raise MemoryApplicationError(
+            "Current Memory changed after this update was proposed."
+        ) from error
+    except MemoryApplicationError:
+        raise
+    except OSError as error:
+        if created:
+            try:
+                target.unlink(missing_ok=True)
+            except OSError:
+                pass
+        raise MemoryApplicationError(
+            "The approved update could not be applied atomically."
+        ) from error
+
+
+def remove_created_target(
+    target: Path,
+    expected_markdown: str,
+    memory_root: Path,
+) -> None:
+    """Remove a newly created page when post-application recording fails."""
+    try:
+        _require_permitted_target(target, memory_root)
+        if target.read_text(encoding="utf-8") != expected_markdown:
+            raise MemoryApplicationError(
+                "Current Memory changed while rolling back this update."
+            )
+        target.unlink()
+    except MemoryApplicationError:
+        raise
+    except OSError as error:
+        raise MemoryApplicationError(
+            "The created page could not be removed during rollback."
+        ) from error

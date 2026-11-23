@@ -14,8 +14,8 @@ server.py  ──▶  mcp/  ──▶  workspace/   (offline, self-contained cor
   owns Markdown parsing and frontmatter validation, Deterministic Search
   (query validation, scope filtering, lexical ranking, excerpts, and Retrieval
   Request caps), unified-diff proposals, Conflict Gate checks, and atomic
-  page replacement. Its internal modules stay private; none becomes a
-  caller-facing interface.
+  page creation and replacement. Its internal modules stay private; none
+  becomes a caller-facing interface.
 - **`git.py`** (`UpdateRecorder`, `GitUpdateRecorder`, `GitRecordingError`):
   isolates Git worktree verification and target-only commits behind a narrow
   seam with both a real Git adapter and test doubles.
