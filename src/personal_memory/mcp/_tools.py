@@ -1,5 +1,6 @@
 """MCP tool handlers and registration for Personal Memory."""
 
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from mcp.server import MCPServer
@@ -23,11 +24,19 @@ from personal_memory.workspace import (
     MemoryProposalError,
     MemoryRetrievalError,
     MemoryValidationError,
+    MemoryWorkspace,
+    ProposedUpdate,
     RetrievalRequest,
 )
 
 AVAILABLE_TOOLS = frozenset(
-    {"search_memory", "read_memory", "propose_update", "apply_update"}
+    {
+        "search_memory",
+        "read_memory",
+        "propose_create",
+        "propose_update",
+        "apply_update",
+    }
 )
 
 # Clients use these hints to decide when to ask the owner before calling a tool.
@@ -101,12 +110,13 @@ def register_tools(
             raise ToolError(str(error)) from error
         return AuthenticatedReadResult(markdown=markdown)
 
-    def propose_update(page_id: str, markdown: str) -> AuthenticatedProposalResult:
-        """Propose complete replacement Markdown without changing Current Memory."""
+    def _issue_proposal(
+        propose: Callable[[MemoryWorkspace], ProposedUpdate],
+    ) -> AuthenticatedProposalResult:
         access_token = require_scope(runtime.write_scope)
         proposal_workspace = runtime.workspace.fresh()
         try:
-            proposal = proposal_workspace.propose_update(page_id, markdown)
+            proposal = propose(proposal_workspace)
         except (MemoryProposalError, MemoryValidationError) as error:
             raise ToolError(str(error)) from error
         proposal_id = runtime.proposals.issue(
@@ -120,16 +130,37 @@ def register_tools(
             diff=proposal.diff,
         )
 
+    def propose_create(page_id: str, markdown: str) -> AuthenticatedProposalResult:
+        """Propose creating a new top-level Memory Page without changing Current Memory."""
+        return _issue_proposal(
+            lambda workspace: workspace.propose_create(page_id, markdown)
+        )
+
+    def propose_update(page_id: str, markdown: str) -> AuthenticatedProposalResult:
+        """Propose complete replacement Markdown without changing Current Memory."""
+        return _issue_proposal(
+            lambda workspace: workspace.propose_update(page_id, markdown)
+        )
+
     def apply_update(proposal_id: str) -> AuthenticatedAppliedResult:
         """Apply and commit a proposed update after the user approves its exact diff."""
         access_token = require_scope(runtime.write_scope)
 
-        def record_applied_update(applied: AppliedUpdate) -> None:
-            runtime.recorder.record(applied.page_id, applied.version_token)
-
         try:
             with runtime.proposals.use(proposal_id, access_token) as pending:
-                runtime.recorder.prepare(pending.proposal.page_id)
+                is_create = pending.proposal.version_token is None
+
+                def record_applied_update(applied: AppliedUpdate) -> None:
+                    runtime.recorder.record(
+                        applied.page_id,
+                        applied.version_token,
+                        create=is_create,
+                    )
+
+                runtime.recorder.prepare(
+                    pending.proposal.page_id,
+                    create=is_create,
+                )
                 applied = pending.workspace.apply_update(
                     pending.proposal,
                     ExplicitApproval.for_proposal(pending.proposal),
@@ -152,6 +183,7 @@ def register_tools(
     tool_registrations = (
         ("search_memory", search_memory, _READ_ONLY),
         ("read_memory", read_memory, _READ_ONLY),
+        ("propose_create", propose_create, _NON_DESTRUCTIVE_WRITE),
         ("propose_update", propose_update, _NON_DESTRUCTIVE_WRITE),
         ("apply_update", apply_update, _DESTRUCTIVE_WRITE),
     )

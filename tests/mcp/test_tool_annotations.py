@@ -24,6 +24,7 @@ async def test_tools_declare_their_effect_so_clients_can_confirm_writes(
     assert hints == {
         "search_memory": (True, None, False),
         "read_memory": (True, None, False),
+        "propose_create": (False, False, False),
         "propose_update": (False, False, False),
         "apply_update": (False, True, False),
     }
