@@ -21,10 +21,16 @@ class GitRecordingError(RuntimeError):
 class UpdateRecorder(Protocol):
     """Record one already-applied update in the canonical Git repository."""
 
-    def prepare(self, page_id: str) -> None:
+    def prepare(self, page_id: str, *, create: bool = False) -> None:
         """Refuse application when Git cannot record exactly this target."""
 
-    def record(self, page_id: str, version_token: str) -> None:
+    def record(
+        self,
+        page_id: str,
+        version_token: str,
+        *,
+        create: bool = False,
+    ) -> None:
         """Commit the verified target."""
 
 
@@ -34,7 +40,7 @@ class GitUpdateRecorder:
     def __init__(self, workspace_root: str | Path) -> None:
         self._workspace_root = Path(workspace_root).resolve()
 
-    def prepare(self, page_id: str) -> None:
+    def prepare(self, page_id: str, *, create: bool = False) -> None:
         """Check that Git can make a target-only commit before application."""
         target = self._target_path(page_id)
         repository_root = Path(
@@ -46,6 +52,9 @@ class GitUpdateRecorder:
             )
         self._run("var", "GIT_AUTHOR_IDENT")
         self._run("var", "GIT_COMMITTER_IDENT")
+        if create:
+            self._prepare_create(target)
+            return
         self._run("ls-files", "--error-unmatch", "--", target)
         if self._has_changes("diff", "--quiet", "--", target) or self._has_changes(
             "diff", "--cached", "--quiet", "--", target
@@ -54,7 +63,39 @@ class GitUpdateRecorder:
                 "Memory Page has uncommitted changes before application."
             )
 
-    def record(self, page_id: str, version_token: str) -> None:
+    def _prepare_create(self, target: str) -> None:
+        target_path = self._workspace_root / target
+        if (
+            target_path.exists()
+            or target_path.is_symlink()
+            or target_path.is_junction()
+        ):
+            raise GitRecordingError(
+                "Memory Page target already exists before creation."
+            )
+        if self._run("ls-files", "--", target).stdout.strip() or self._has_changes(
+            "diff", "--cached", "--quiet", "--", target
+        ):
+            raise GitRecordingError(
+                "Memory Page target is already tracked or staged in Git."
+            )
+        ignored = self._run(
+            "check-ignore",
+            "--quiet",
+            "--",
+            target,
+            allowed_returncodes=(0, 1),
+        )
+        if ignored.returncode == 0:
+            raise GitRecordingError("Memory Page target is ignored by Git.")
+
+    def record(
+        self,
+        page_id: str,
+        version_token: str,
+        *,
+        create: bool = False,
+    ) -> None:
         """Commit only the newly applied target after verifying its content."""
         target = self._target_path(page_id)
         try:
@@ -67,6 +108,28 @@ class GitUpdateRecorder:
             raise GitRecordingError(
                 "Memory Page changed before its approved update could be recorded."
             )
+        if create:
+            self._run("add", "--", target)
+            try:
+                self._run(
+                    "commit",
+                    "--only",
+                    "-m",
+                    f"memory: create {page_id}",
+                    "--",
+                    target,
+                )
+            except GitRecordingError:
+                self._run(
+                    "rm",
+                    "--cached",
+                    "--quiet",
+                    "--",
+                    target,
+                    allowed_returncodes=(0, 1, 128),
+                )
+                raise
+            return
         self._run(
             "commit",
             "--only",

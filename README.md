@@ -37,9 +37,10 @@ cp .env.example .env
 uv run personal-memory-server /path/to/workspace
 ```
 
-The server exposes `search_memory`, `read_memory`, `propose_update`, and
-`apply_update`. Read operations require `memory:read`; update operations
-require `memory:write`. See [Connect ChatGPT and Codex](docs/connect-memory-clients.md)
+The server exposes `search_memory`, `read_memory`, `propose_create`,
+`propose_update`, and `apply_update`. Read operations require `memory:read`;
+create and update operations require `memory:write`. See
+[Connect ChatGPT and Codex](docs/connect-memory-clients.md)
 for client and tunnel setup. For an offline example that does not require
 Auth0 or a running server, see
 `scripts/smoke_authenticated_retrieval.py`.
@@ -50,7 +51,8 @@ The project has three main layers:
 
 - **Memory workspace:** `MemoryWorkspace` loads and validates Markdown pages
   under `<workspace>/memory`, performs deterministic scoped retrieval, enforces
-  request word/page budgets, and creates or applies exact update proposals.
+  request word/page budgets, and creates or applies exact creation and update
+  proposals.
 - **MCP adapter:** `personal_memory.mcp` translates authenticated MCP tool
   calls into workspace operations. It keeps retrieval requests and update
   proposals bounded, short-lived, and tied to the authenticated principal.

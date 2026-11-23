@@ -147,7 +147,11 @@ def main(argv: Sequence[str] | None = None) -> None:
         issuer_url=args.issuer.rstrip("/") + "/",
         resource_server_url=args.resource_url,
         exposed_tools=frozenset({
-            "search_memory", "read_memory", "propose_update", "apply_update",
+            "search_memory",
+            "read_memory",
+            "propose_create",
+            "propose_update",
+            "apply_update",
         }),
     )
     resource = urlsplit(args.resource_url)

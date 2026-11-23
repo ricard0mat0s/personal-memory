@@ -41,7 +41,7 @@ class AuthenticatedProposalResult(BaseModel):
 
     proposal_id: str
     page_id: str
-    version_token: str
+    version_token: str | None
     diff: str
 
 
@@ -51,7 +51,7 @@ class AuthenticatedAppliedResult(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     page_id: str
-    previous_version_token: str
+    previous_version_token: str | None
     version_token: str
 
 

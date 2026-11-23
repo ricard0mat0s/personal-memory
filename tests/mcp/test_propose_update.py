@@ -129,3 +129,59 @@ async def test_proposal_identifier_cannot_be_used_as_a_retrieval_identifier(
         )
 
     assert_request_is_unavailable(result)
+
+
+@pytest.mark.anyio
+async def test_authenticated_creation_proposal_returns_exact_identity_without_writing(
+    tmp_path: Path,
+) -> None:
+    write_memory_page(tmp_path)
+    target = tmp_path / "memory" / "new-topic.md"
+    server = create_test_server(tmp_path)
+
+    async with authenticated_client(server) as client:
+        result = await client.call_tool(
+            "propose_create",
+            {"page_id": "new-topic.md", "markdown": DIRECTION_MARKDOWN},
+        )
+
+    assert not result.is_error
+    assert result.structured_content is not None
+    assert result.structured_content["page_id"] == "new-topic.md"
+    assert result.structured_content["version_token"] is None
+    assert result.structured_content["diff"] == (
+        "--- /dev/null\n"
+        "+++ b/memory/new-topic.md\n"
+        "@@ -0,0 +1,7 @@\n"
+        "+---\n"
+        "+title: Project direction\n"
+        "+scope: individual_project\n"
+        "+related_pages: []\n"
+        "+---\n"
+        "+\n"
+        "+Build one small verified milestone.\n"
+    )
+    proposal_id = result.structured_content["proposal_id"]
+    assert isinstance(proposal_id, str)
+    assert len(proposal_id) >= 32
+    assert not target.exists()
+
+
+@pytest.mark.anyio
+async def test_authenticated_creation_proposal_reports_invalid_target_without_writing(
+    tmp_path: Path,
+) -> None:
+    write_memory_page(tmp_path)
+    server = create_test_server(tmp_path)
+
+    async with authenticated_client(server) as client:
+        result = await client.call_tool(
+            "propose_create",
+            {"page_id": "direction.md", "markdown": DIRECTION_MARKDOWN},
+        )
+
+    assert result.is_error
+    assert result.structured_content is None
+    assert len(result.content) == 1
+    assert isinstance(result.content[0], TextContent)
+    assert "already exists" in result.content[0].text
