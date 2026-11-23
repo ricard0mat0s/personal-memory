@@ -321,7 +321,7 @@ def test_git_recorder_creates_a_single_target_only_commit_and_preserves_staged_c
 
     recorder.prepare("new-topic.md", create=True)
     new_target = tmp_path / "memory" / "new-topic.md"
-    new_target.write_text(DIRECTION_MARKDOWN, encoding="utf-8")
+    new_target.write_bytes(DIRECTION_MARKDOWN.encode("utf-8"))
     version_token = sha256(DIRECTION_MARKDOWN.encode("utf-8")).hexdigest()
     recorder.record("new-topic.md", version_token, create=True)
 
@@ -406,14 +406,17 @@ def test_git_recorder_unstages_created_target_when_commit_fails(
     recorder = GitUpdateRecorder(tmp_path)
     recorder.prepare("new-topic.md", create=True)
     new_target = tmp_path / "memory" / "new-topic.md"
-    new_target.write_text(DIRECTION_MARKDOWN, encoding="utf-8")
+    new_target.write_bytes(DIRECTION_MARKDOWN.encode("utf-8"))
     version_token = sha256(DIRECTION_MARKDOWN.encode("utf-8")).hexdigest()
 
     hook = tmp_path / ".git" / "hooks" / "pre-commit"
-    hook.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
+    hook.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8", newline="\n")
     hook.chmod(0o755)
 
-    with pytest.raises(GitRecordingError):
+    with pytest.raises(
+        GitRecordingError,
+        match="Approved update could not be recorded in Git",
+    ):
         recorder.record("new-topic.md", version_token, create=True)
 
     staged_files = subprocess.run(
