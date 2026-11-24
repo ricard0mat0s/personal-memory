@@ -15,6 +15,10 @@ from personal_memory.git import UpdateRecorder
 
 
 RESOURCE_SERVER_URL = "http://127.0.0.1:8000/mcp"
+EXPECTED_PERMITTED_SCOPES_TEXT = (
+    "career_and_job_opportunities, individual_project, "
+    "organization_work_context, personal_history"
+)
 DIRECTION_MARKDOWN = """\
 ---
 title: Project direction

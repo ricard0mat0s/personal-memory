@@ -6,6 +6,7 @@ from mcp.types import TextContent
 
 from .support import (
     DIRECTION_MARKDOWN,
+    EXPECTED_PERMITTED_SCOPES_TEXT,
     assert_request_is_unavailable,
     authenticated_client,
     create_test_server,
@@ -217,10 +218,7 @@ async def test_authenticated_proposals_report_permitted_scopes_for_unsupported_s
     assert len(result.content) == 1
     assert isinstance(result.content[0], TextContent)
     assert "contains an unsupported scope" in result.content[0].text
-    assert (
-        "career_and_job_opportunities, individual_project, "
-        "organization_work_context, personal_history"
-    ) in result.content[0].text
+    assert EXPECTED_PERMITTED_SCOPES_TEXT in result.content[0].text
     assert (tmp_path / "memory" / "direction.md").read_text(
         encoding="utf-8"
     ) == DIRECTION_MARKDOWN

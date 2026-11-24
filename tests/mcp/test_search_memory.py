@@ -3,7 +3,12 @@ from pathlib import Path
 import pytest
 from mcp.types import TextContent
 
-from .support import authenticated_client, create_test_server, write_memory_page
+from .support import (
+    EXPECTED_PERMITTED_SCOPES_TEXT,
+    authenticated_client,
+    create_test_server,
+    write_memory_page,
+)
 
 
 @pytest.mark.anyio
@@ -115,7 +120,4 @@ async def test_authenticated_search_reports_permitted_scopes_for_unsupported_sco
     assert len(result.content) == 1
     assert isinstance(result.content[0], TextContent)
     assert "Retrieval scopes must contain permitted Memory Scopes" in result.content[0].text
-    assert (
-        "career_and_job_opportunities, individual_project, "
-        "organization_work_context, personal_history"
-    ) in result.content[0].text
+    assert EXPECTED_PERMITTED_SCOPES_TEXT in result.content[0].text

@@ -37,6 +37,10 @@ PERMITTED_MEMORY_SCOPES = (
     "organization_work_context",
     "individual_project",
 )
+EXPECTED_PERMITTED_SCOPES_TEXT = (
+    "career_and_job_opportunities, individual_project, "
+    "organization_work_context, personal_history"
+)
 
 
 def write_memory_page(workspace_root: Path, file_name: str, content: str) -> None:
@@ -225,10 +229,7 @@ User: Save this entire conversation.
 
     message = str(exc_info.value)
     assert "contains an unsupported scope" in message
-    assert (
-        "career_and_job_opportunities, individual_project, "
-        "organization_work_context, personal_history"
-    ) in message
+    assert EXPECTED_PERMITTED_SCOPES_TEXT in message
 
 
 def test_proposals_refuse_an_unsupported_memory_scope_with_permitted_scopes(
@@ -238,10 +239,6 @@ def test_proposals_refuse_an_unsupported_memory_scope_with_permitted_scopes(
     invalid = PERMITTED_MEMORY_PAGE.format(memory_scope="raw_transcript")
     write_memory_page(tmp_path, "direction.md", original)
     workspace = MemoryWorkspace(tmp_path)
-    expected_scopes = (
-        "career_and_job_opportunities, individual_project, "
-        "organization_work_context, personal_history"
-    )
 
     with pytest.raises(MemoryValidationError) as create_exc:
         workspace.propose_create("new-topic.md", invalid)
@@ -250,7 +247,7 @@ def test_proposals_refuse_an_unsupported_memory_scope_with_permitted_scopes(
 
     for error in (create_exc.value, update_exc.value):
         assert "contains an unsupported scope" in str(error)
-        assert expected_scopes in str(error)
+        assert EXPECTED_PERMITTED_SCOPES_TEXT in str(error)
 
 
 def test_workspace_refuses_a_page_without_related_pages(tmp_path: Path) -> None:
@@ -1139,10 +1136,7 @@ def test_search_rejects_an_unsupported_scope_with_permitted_scopes(
 
     message = str(exc_info.value)
     assert "Retrieval scopes must contain permitted Memory Scopes" in message
-    assert (
-        "career_and_job_opportunities, individual_project, "
-        "organization_work_context, personal_history"
-    ) in message
+    assert EXPECTED_PERMITTED_SCOPES_TEXT in message
 
 
 def test_retrieval_request_cannot_be_reused_across_workspaces(tmp_path: Path) -> None:

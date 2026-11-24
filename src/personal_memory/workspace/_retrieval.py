@@ -9,7 +9,7 @@ import unicodedata
 from personal_memory.workspace._errors import MemoryRetrievalError
 from personal_memory.workspace._markdown import (
     PERMITTED_MEMORY_SCOPES,
-    SORTED_PERMITTED_MEMORY_SCOPES,
+    PERMITTED_MEMORY_SCOPES_TEXT,
     MemoryPage,
 )
 
@@ -261,7 +261,7 @@ def _validate_search_request(request: RetrievalRequest) -> frozenset[str]:
         ):
             raise MemoryRetrievalError(
                 "Retrieval scopes must contain permitted Memory Scopes: "
-                f"{SORTED_PERMITTED_MEMORY_SCOPES}."
+                f"{PERMITTED_MEMORY_SCOPES_TEXT}."
             )
     query_terms = normalized_terms(request.query)
     if not query_terms:
