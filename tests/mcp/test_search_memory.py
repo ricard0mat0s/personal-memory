@@ -3,7 +3,12 @@ from pathlib import Path
 import pytest
 from mcp.types import TextContent
 
-from .support import authenticated_client, create_test_server, write_memory_page
+from .support import (
+    EXPECTED_PERMITTED_SCOPES_TEXT,
+    authenticated_client,
+    create_test_server,
+    write_memory_page,
+)
 
 
 @pytest.mark.anyio
@@ -96,3 +101,23 @@ Choose one direction to explore.
     assert [
         item["page_id"] for item in result.structured_content["results"]
     ] == ["career.md"]
+
+
+@pytest.mark.anyio
+async def test_authenticated_search_reports_permitted_scopes_for_unsupported_scope(
+    tmp_path: Path,
+) -> None:
+    write_memory_page(tmp_path)
+    server = create_test_server(tmp_path)
+    async with authenticated_client(server) as client:
+        result = await client.call_tool(
+            "search_memory",
+            {"query": "direction", "scopes": ["raw_transcript"]},
+        )
+
+    assert result.is_error
+    assert result.structured_content is None
+    assert len(result.content) == 1
+    assert isinstance(result.content[0], TextContent)
+    assert "Retrieval scopes must contain permitted Memory Scopes" in result.content[0].text
+    assert EXPECTED_PERMITTED_SCOPES_TEXT in result.content[0].text

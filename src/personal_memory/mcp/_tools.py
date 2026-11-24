@@ -2,10 +2,12 @@
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Annotated
 
 from mcp.server import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
+from pydantic import Field
 
 from personal_memory.git import GitRecordingError, UpdateRecorder
 from personal_memory.mcp._authz import require_scope
@@ -48,6 +50,25 @@ _DESTRUCTIVE_WRITE = ToolAnnotations(
     read_only_hint=False, destructive_hint=True, open_world_hint=False
 )
 
+_PERMITTED_SCOPES_GUIDANCE = (
+    "Permitted Memory Scopes: "
+    "personal_history (Personal History), "
+    "career_and_job_opportunities (Career & Job Opportunities), "
+    "organization_work_context (Organization/Work Context), "
+    "individual_project (one Individual Project)."
+)
+_FRONTMATTER_GUIDANCE = (
+    "Must begin with YAML frontmatter (delimited by ---) containing "
+    "title (non-empty string), "
+    "scope (one of the four permitted Memory Scopes), and "
+    "related_pages (list of relative paths inside memory/). "
+    f"{_PERMITTED_SCOPES_GUIDANCE}"
+)
+_NEW_PAGE_ID_GUIDANCE = (
+    "Target filename for the new Memory Page directly inside memory/, "
+    r"matching ^[a-z0-9][a-z0-9_-]*\.md$ (top-level lowercase slug ending in .md)."
+)
+
 
 @dataclass(frozen=True, slots=True)
 class ToolRuntime:
@@ -81,10 +102,23 @@ def register_tools(
     """Register the configured Personal Memory tools on the MCP server."""
 
     def search_memory(
-        query: str,
-        scopes: list[str] | None = None,
+        query: Annotated[
+            str,
+            Field(
+                description="Non-empty search query containing at least one text term."
+            ),
+        ],
+        scopes: Annotated[
+            list[str] | None,
+            Field(
+                description=(
+                    "Optional list of Memory Scopes to restrict Bounded Retrieval. "
+                    f"{_PERMITTED_SCOPES_GUIDANCE}"
+                )
+            ),
+        ] = None,
     ) -> AuthenticatedSearchResult:
-        """Search permitted memory within one bounded Retrieval Request."""
+        """Search permitted memory within one bounded Retrieval Request, optionally filtered by permitted Memory Scopes."""
         access_token = require_scope(runtime.read_scope)
         request = RetrievalRequest(
             query=query,
@@ -130,14 +164,44 @@ def register_tools(
             diff=proposal.diff,
         )
 
-    def propose_create(page_id: str, markdown: str) -> AuthenticatedProposalResult:
-        """Propose creating a new top-level Memory Page without changing Current Memory."""
+    def propose_create(
+        page_id: Annotated[str, Field(description=_NEW_PAGE_ID_GUIDANCE)],
+        markdown: Annotated[
+            str,
+            Field(
+                description=(
+                    "Complete Markdown for the new Memory Page. "
+                    f"{_FRONTMATTER_GUIDANCE}"
+                )
+            ),
+        ],
+    ) -> AuthenticatedProposalResult:
+        """Propose creating a new top-level Memory Page (lowercase .md slug directly inside memory/) with valid YAML frontmatter (title, scope, related_pages) without changing Current Memory."""
         return _issue_proposal(
             lambda workspace: workspace.propose_create(page_id, markdown)
         )
 
-    def propose_update(page_id: str, markdown: str) -> AuthenticatedProposalResult:
-        """Propose complete replacement Markdown without changing Current Memory."""
+    def propose_update(
+        page_id: Annotated[
+            str,
+            Field(
+                description=(
+                    "Relative path of the existing Memory Page inside memory/ "
+                    "to replace."
+                )
+            ),
+        ],
+        markdown: Annotated[
+            str,
+            Field(
+                description=(
+                    "Complete replacement Markdown for the Memory Page. "
+                    f"{_FRONTMATTER_GUIDANCE}"
+                )
+            ),
+        ],
+    ) -> AuthenticatedProposalResult:
+        """Propose complete replacement Markdown with valid YAML frontmatter (title, scope, related_pages) for an existing Memory Page without changing Current Memory."""
         return _issue_proposal(
             lambda workspace: workspace.propose_update(page_id, markdown)
         )
