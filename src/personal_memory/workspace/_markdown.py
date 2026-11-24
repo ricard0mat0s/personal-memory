@@ -17,6 +17,7 @@ PERMITTED_MEMORY_SCOPES = frozenset(
         "individual_project",
     }
 )
+SORTED_PERMITTED_MEMORY_SCOPES = ", ".join(sorted(PERMITTED_MEMORY_SCOPES))
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,7 +81,8 @@ def validate_memory_markdown(
     memory_scope = metadata.get("scope")
     if not isinstance(memory_scope, str) or memory_scope not in PERMITTED_MEMORY_SCOPES:
         raise MemoryValidationError(
-            f"{page_name} frontmatter contains an unsupported scope."
+            f"{page_name} frontmatter contains an unsupported scope. "
+            f"Permitted Memory Scopes: {SORTED_PERMITTED_MEMORY_SCOPES}."
         )
 
     related_pages = metadata.get("related_pages")

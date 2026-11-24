@@ -185,3 +185,43 @@ async def test_authenticated_creation_proposal_reports_invalid_target_without_wr
     assert len(result.content) == 1
     assert isinstance(result.content[0], TextContent)
     assert "already exists" in result.content[0].text
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("tool_name", "page_id"),
+    [
+        ("propose_create", "new-topic.md"),
+        ("propose_update", "direction.md"),
+    ],
+)
+async def test_authenticated_proposals_report_permitted_scopes_for_unsupported_scope(
+    tmp_path: Path,
+    tool_name: str,
+    page_id: str,
+) -> None:
+    write_memory_page(tmp_path)
+    invalid_markdown = DIRECTION_MARKDOWN.replace(
+        "scope: individual_project", "scope: raw_transcript"
+    )
+    server = create_test_server(tmp_path)
+
+    async with authenticated_client(server) as client:
+        result = await client.call_tool(
+            tool_name,
+            {"page_id": page_id, "markdown": invalid_markdown},
+        )
+
+    assert result.is_error
+    assert result.structured_content is None
+    assert len(result.content) == 1
+    assert isinstance(result.content[0], TextContent)
+    assert "contains an unsupported scope" in result.content[0].text
+    assert (
+        "career_and_job_opportunities, individual_project, "
+        "organization_work_context, personal_history"
+    ) in result.content[0].text
+    assert (tmp_path / "memory" / "direction.md").read_text(
+        encoding="utf-8"
+    ) == DIRECTION_MARKDOWN
+    assert not (tmp_path / "memory" / "new-topic.md").exists()

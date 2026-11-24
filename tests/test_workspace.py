@@ -220,8 +220,37 @@ User: Save this entire conversation.
 
     write_memory_page(tmp_path, "complete-chat.md", transcript_page)
 
-    with pytest.raises(MemoryValidationError, match="scope"):
+    with pytest.raises(MemoryValidationError) as exc_info:
         MemoryWorkspace(tmp_path)
+
+    message = str(exc_info.value)
+    assert "contains an unsupported scope" in message
+    assert (
+        "career_and_job_opportunities, individual_project, "
+        "organization_work_context, personal_history"
+    ) in message
+
+
+def test_proposals_refuse_an_unsupported_memory_scope_with_permitted_scopes(
+    tmp_path: Path,
+) -> None:
+    original = PERMITTED_MEMORY_PAGE.format(memory_scope="individual_project")
+    invalid = PERMITTED_MEMORY_PAGE.format(memory_scope="raw_transcript")
+    write_memory_page(tmp_path, "direction.md", original)
+    workspace = MemoryWorkspace(tmp_path)
+    expected_scopes = (
+        "career_and_job_opportunities, individual_project, "
+        "organization_work_context, personal_history"
+    )
+
+    with pytest.raises(MemoryValidationError) as create_exc:
+        workspace.propose_create("new-topic.md", invalid)
+    with pytest.raises(MemoryValidationError) as update_exc:
+        workspace.propose_update("direction.md", invalid)
+
+    for error in (create_exc.value, update_exc.value):
+        assert "contains an unsupported scope" in str(error)
+        assert expected_scopes in str(error)
 
 
 def test_workspace_refuses_a_page_without_related_pages(tmp_path: Path) -> None:
@@ -1095,6 +1124,25 @@ def test_search_rejects_malformed_retrieval_requests(
 
     with pytest.raises(MemoryRetrievalError):
         workspace.search_memory(malformed_request)  # type: ignore[arg-type]
+
+
+def test_search_rejects_an_unsupported_scope_with_permitted_scopes(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "memory").mkdir()
+    workspace = MemoryWorkspace(tmp_path)
+
+    with pytest.raises(MemoryRetrievalError) as exc_info:
+        workspace.search_memory(
+            RetrievalRequest("query", scopes=("raw_transcript",))
+        )
+
+    message = str(exc_info.value)
+    assert "Retrieval scopes must contain permitted Memory Scopes" in message
+    assert (
+        "career_and_job_opportunities, individual_project, "
+        "organization_work_context, personal_history"
+    ) in message
 
 
 def test_retrieval_request_cannot_be_reused_across_workspaces(tmp_path: Path) -> None:
